@@ -5,6 +5,16 @@ let recordedChunks = [];
 let selectedSourceId = null;
 let currentStream = null;
 let selectedSourceType = 'screen';
+
+const RecordingState = {
+  IDLE: 'idle',
+  RECORDING: 'recording',
+  PAUSED: 'paused'
+};
+
+let recordingState = RecordingState.IDLE;
+let timerInterval = null;
+let elapsedSeconds = 0;
 const config = {
   zoom: {
     enabled: false,
@@ -22,6 +32,59 @@ const config = {
     clickAnimation: 'ripple'
   }
 };
+
+function formatTime(seconds) {
+  const mins = Math.floor(seconds / 60)
+    .toString()
+    .padStart(2, '0');
+  const secs = Math.floor(seconds % 60)
+    .toString()
+    .padStart(2, '0');
+  return `${mins}:${secs}`;
+}
+
+function updateTimer() {
+  const timer = document.getElementById('recording-timer');
+  timer.textContent = formatTime(elapsedSeconds);
+}
+
+function updateUI() {
+  const startBtn = document.getElementById('start-recording');
+  const pauseBtn = document.getElementById('pause-recording');
+  const stopBtn = document.getElementById('stop-recording');
+  const statusText = document.getElementById('status-text');
+  const indicator = document.getElementById('status-indicator');
+
+  switch (recordingState) {
+    case RecordingState.RECORDING:
+      startBtn.disabled = true;
+      pauseBtn.disabled = false;
+      pauseBtn.textContent = '⏸️ Pause';
+      stopBtn.disabled = false;
+      statusText.textContent = 'Recording';
+      indicator.style.background = '#fa3c4c';
+      updateTimer();
+      break;
+    case RecordingState.PAUSED:
+      startBtn.disabled = true;
+      pauseBtn.disabled = false;
+      pauseBtn.textContent = '▶️ Resume';
+      stopBtn.disabled = false;
+      statusText.textContent = 'Paused';
+      indicator.style.background = '#ffa500';
+      updateTimer();
+      break;
+    default:
+      startBtn.disabled = !mediaRecorder;
+      pauseBtn.disabled = true;
+      pauseBtn.textContent = '⏸️ Pause';
+      stopBtn.disabled = true;
+      statusText.textContent = 'Ready';
+      indicator.style.background = '#b3b3b3';
+      elapsedSeconds = 0;
+      updateTimer();
+  }
+}
 
 async function loadSources() {
   const sources = await ipcRenderer.invoke('get-sources', selectedSourceType);
@@ -87,34 +150,46 @@ async function selectSource(sourceId) {
   mediaRecorder.ondataavailable = (e) => recordedChunks.push(e.data);
   mediaRecorder.onstop = handleStop;
 
-  document.getElementById('start-recording').disabled = false;
   updatePreviewStatus();
+  updateUI();
 }
 
 function startRecording() {
-  if (!mediaRecorder) return;
+  if (!mediaRecorder || recordingState !== RecordingState.IDLE) return;
   console.log('Recording Configuration:', config);
   mediaRecorder.start();
-  document.getElementById('status-text').textContent = 'Recording';
-  document.getElementById('pause-recording').disabled = false;
-  document.getElementById('stop-recording').disabled = false;
+  ipcRenderer.send('recording-started');
+  recordingState = RecordingState.RECORDING;
+  elapsedSeconds = 0;
+  timerInterval = setInterval(() => {
+    if (recordingState === RecordingState.RECORDING) {
+      elapsedSeconds += 1;
+      updateTimer();
+    }
+  }, 1000);
+  updateUI();
 }
 
 function pauseRecording() {
-  if (mediaRecorder.state === 'recording') {
+  if (!mediaRecorder) return;
+  if (recordingState === RecordingState.RECORDING) {
     mediaRecorder.pause();
-    document.getElementById('status-text').textContent = 'Paused';
-  } else if (mediaRecorder.state === 'paused') {
+    recordingState = RecordingState.PAUSED;
+  } else if (recordingState === RecordingState.PAUSED) {
     mediaRecorder.resume();
-    document.getElementById('status-text').textContent = 'Recording';
+    recordingState = RecordingState.RECORDING;
   }
+  updateUI();
 }
 
 function stopRecording() {
+  if (!mediaRecorder || recordingState === RecordingState.IDLE) return;
   mediaRecorder.stop();
+  ipcRenderer.send('recording-stopped');
+  clearInterval(timerInterval);
+  recordingState = RecordingState.IDLE;
   document.getElementById('status-text').textContent = 'Processing...';
-  document.getElementById('pause-recording').disabled = true;
-  document.getElementById('stop-recording').disabled = true;
+  updateUI();
 }
 
 async function handleStop() {
@@ -122,6 +197,7 @@ async function handleStop() {
   const buffer = Buffer.from(await blob.arrayBuffer());
   await ipcRenderer.invoke('save-recording', buffer, `Recording-${Date.now()}.webm`);
   document.getElementById('status-text').textContent = 'Ready';
+  updateUI();
 }
 
 function updatePreviewStatus() {
@@ -215,6 +291,11 @@ document.querySelectorAll('.source-type-btn').forEach((btn) => {
   });
 });
 
+ipcRenderer.on('menu-start-recording', startRecording);
+ipcRenderer.on('menu-stop-recording', stopRecording);
+ipcRenderer.on('menu-pause-recording', pauseRecording);
+
 loadSources();
 initializeZoomMouseSettings();
 updatePreviewStatus();
+updateUI();
