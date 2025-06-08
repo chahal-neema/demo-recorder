@@ -5,39 +5,10 @@ const RecordingStateMachine = require('./modules/stateMachine.js');
 const ScreenTracker = require('./modules/screenTracker.js');
 const MouseTracker = require('./modules/mouseTracker.js');
 const StreamProcessor = require('./modules/streamProcessor.js');
+const logger = require('./modules/logger.js');
 
-// Create logging system that saves to file
-const fs = require('fs');
-const path = require('path');
-
-const logFile = path.join(__dirname, '..', '..', 'debug.log');
-const originalConsoleLog = console.log;
-
-console.log = function(...args) {
-    const timestamp = new Date().toISOString();
-    const message = args.map(arg => 
-        typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
-    ).join(' ');
-    
-    const logEntry = `[${timestamp}] ${message}\n`;
-    
-    // Write to file
-    try {
-        fs.appendFileSync(logFile, logEntry);
-    } catch (error) {
-        // Fallback to original console.log if file write fails
-    }
-    
-    // Also output to original console
-    originalConsoleLog.apply(console, args);
-};
-
-// Clear previous log file
-try {
-    fs.writeFileSync(logFile, '=== DEMO RECORDER DEBUG LOG ===\n');
-} catch (error) {
-    // Ignore if can't clear
-}
+// Initialize logging system
+logger.initialize('debug.log');
 
 console.log('✅ Modules imported successfully');
 
@@ -54,7 +25,7 @@ let streamProcessor = null;
 // --- Window Focus Handling ---
 window.addEventListener('focus', () => {
     isWindowFocused = true;
-    console.log('🎯 Window focused - recording continues normally');
+    logger.info('Window focused - recording continues normally');
     
     const state = recordingStateMachine.getState();
     if (state.isRecording) {
@@ -64,7 +35,7 @@ window.addEventListener('focus', () => {
 
 window.addEventListener('blur', () => {
     isWindowFocused = false;
-    console.log('⚠️ Window lost focus - maintaining recording');
+    logger.warn('Window lost focus - maintaining recording');
     
     const state = recordingStateMachine.getState();
     if (state.isRecording) {
@@ -79,7 +50,7 @@ document.addEventListener('click', (event) => {
 
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
-    console.log('✅ DOM loaded, initializing...');
+    logger.success('DOM loaded, initializing...');
     initializeApp();
 });
 
@@ -87,7 +58,7 @@ async function initializeApp() {
     try {
         // Cache DOM elements
         dom = UI.cacheDOMElements();
-        console.log('✅ DOM elements cached');
+        logger.success('DOM elements cached');
         
         // Initialize modules
         await initializeModules();
@@ -98,10 +69,10 @@ async function initializeApp() {
         // Load initial sources
         await screenTracker.loadSources();
         
-        console.log('✅ App initialization complete');
+        logger.success('App initialization complete');
         
     } catch (error) {
-        console.error('❌ Error initializing app:', error);
+        logger.error('Error initializing app:', error);
     }
 }
 
@@ -135,11 +106,11 @@ async function initializeModules() {
     // Setup IPC listeners
     setupIPCListeners();
     
-    console.log('✅ Modules initialized');
+    logger.success('Modules initialized');
 }
 
 function initializeUI() {
-    console.log('🎨 Initializing UI...');
+    logger.ui('Initializing UI...');
     
     const state = recordingStateMachine.getState();
     UI.updateButtonStates(state.isRecording, state.isPaused);
@@ -158,7 +129,7 @@ function initializeUI() {
     if(dom.highlightSizeSlider) UI.updateHighlightSizeLabel(dom.highlightSizeSlider.value);
     if(dom.highlightColorPicker) UI.updateColorLabel(dom.highlightColorPicker.value);
     
-    console.log('✅ UI initialized');
+    logger.ui('UI initialized');
 }
 
 // --- Event Handlers ---
@@ -180,28 +151,28 @@ function handleStateChange(state) {
 }
 
 function handleSourceSelected(source, stream) {
-    console.log('🎯 Source selected:', source.name);
+    logger.screen('Source selected:', source.name);
     // Source selection handled by ScreenTracker
 }
 
 function handlePreviewReady(stream) {
-    console.log('📺 Preview ready with stream');
+    logger.screen('Preview ready with stream');
     // Preview setup handled by ScreenTracker
 }
 
 function handleRecordingError(message, error) {
-    console.error('❌ Recording error:', message, error);
+    logger.error('Recording error:', message, error);
     UI.updateStatus('Recording Error', 'red');
     alert(`${message}: ${error.message}`);
 }
 
 function handleScreenError(message, error) {
-    console.error('❌ Screen error:', message, error);
+    logger.error('Screen error:', message, error);
     alert(`${message}: ${error.message}`);
 }
 
 async function handleRecordingComplete(buffer) {
-    console.log('✅ Recording completed, saving...');
+    logger.recording('Recording completed, saving...');
     
     // Cleanup
     if (streamProcessor) {
@@ -230,7 +201,7 @@ async function startRecording() {
     mouseTracker.setIgnoreNextClick();
     
     try {
-        console.log('🎬 Starting recording...');
+        logger.recording('Starting recording...');
         
         // Get original stream
         const originalStream = screenTracker.getCurrentStream();
@@ -241,15 +212,15 @@ async function startRecording() {
         // Determine if we need processing (zoom or mouse effects enabled)
         const needsProcessing = config.zoom.enabled || config.mouse.enabled;
         
-        console.log('📊 Recording start analysis:');
-        console.log('   Zoom enabled:', config.zoom.enabled);
-        console.log('   Mouse enabled:', config.mouse.enabled);
-        console.log('   Needs processing:', needsProcessing);
+        logger.recording('Recording start analysis:');
+        logger.recording('   Zoom enabled:', config.zoom.enabled);
+        logger.recording('   Mouse enabled:', config.mouse.enabled);
+        logger.recording('   Needs processing:', needsProcessing);
         
         let recordingStream;
         
         if (needsProcessing) {
-            console.log('🎛️ Creating StreamProcessor for processing...');
+            logger.recording('Creating StreamProcessor for processing...');
             
             // Create stream processor for effects
             streamProcessor = new StreamProcessor();
@@ -264,7 +235,7 @@ async function startRecording() {
             
         } else {
             // Use original stream if no effects needed
-            console.log('📹 Using original stream (no processing needed)');
+            logger.recording('Using original stream (no processing needed)');
             recordingStream = originalStream;
         }
         
@@ -284,10 +255,10 @@ async function startRecording() {
         // Start recording through state machine
         await recordingStateMachine.startRecording(recordingStream);
         
-        console.log('✅ Recording started successfully');
+        logger.success('Recording started successfully');
         
     } catch (error) {
-        console.error('❌ Error starting recording:', error);
+        logger.error('Error starting recording:', error);
         alert(`Error starting recording: ${error.message}`);
     }
 }
@@ -317,9 +288,10 @@ async function getAudioStream() {
 function setupIPCListeners() {
     ipcRenderer.on('recording-saved', (event, path) => {
         if (path) {
+            logger.success('Recording saved to:', path);
             alert(`Recording saved to ${path}`);
         } else {
-            console.log('Save was cancelled.');
+            logger.info('Save was cancelled.');
         }
     });
 
@@ -330,31 +302,31 @@ function setupIPCListeners() {
 
 // --- Debug Functions ---
 window.debugZoom = function() {
-    console.log('🔧 Debug Zoom Function Called');
-    console.log('   Config:', config.zoom);
-    console.log('   StreamProcessor exists:', !!streamProcessor);
+    logger.debug('Debug Zoom Function Called');
+    logger.debug('   Config:', config.zoom);
+    logger.debug('   StreamProcessor exists:', !!streamProcessor);
     
     if (streamProcessor) {
-        console.log('   Current zoom level:', streamProcessor.zoomLevel);
-        console.log('   Target zoom level:', streamProcessor.targetZoomLevel);
-        console.log('   Zoom transition active:', streamProcessor.zoomTransition.active);
+        logger.debug('   Current zoom level:', streamProcessor.zoomLevel);
+        logger.debug('   Target zoom level:', streamProcessor.targetZoomLevel);
+        logger.debug('   Zoom transition active:', streamProcessor.zoomTransition.active);
         
         streamProcessor.lastClickTime = Date.now();
         streamProcessor.handleZoomTrigger();
-        console.log('   Manual zoom trigger sent');
+        logger.debug('   Manual zoom trigger sent');
     } else {
-        console.log('   No StreamProcessor available');
+        logger.debug('   No StreamProcessor available');
     }
 };
 
 window.forceZoom = function(level = 2.0) {
-    console.log('🚀 Force Zoom to level:', level);
+    logger.zoom('Force Zoom to level:', level);
     if (streamProcessor) {
         streamProcessor.targetZoomLevel = level;
         streamProcessor.startZoomTransition();
-        console.log('   Force zoom applied');
+        logger.zoom('   Force zoom applied');
     } else {
-        console.log('   No StreamProcessor available');
+        logger.debug('   No StreamProcessor available');
     }
 };
 
@@ -362,20 +334,20 @@ window.testZoom = () => {
     if (streamProcessor) {
         streamProcessor.testZoom();
     } else {
-        console.log('❌ No StreamProcessor available');
+        logger.debug('No StreamProcessor available');
     }
 };
 
 window.debugStreamProcessor = () => {
     if (streamProcessor) {
-        console.log('🔍 StreamProcessor Debug Info:');
-        console.log('   Zoom enabled:', config.zoom.enabled);
-        console.log('   Current zoom level:', streamProcessor.zoomLevel);
-        console.log('   Last click time:', streamProcessor.lastClickTime);
-        console.log('   Time since last click:', Date.now() - streamProcessor.lastClickTime);
-        console.log('   Zoom transition active:', streamProcessor.zoomTransition?.active);
+        logger.debug('StreamProcessor Debug Info:');
+        logger.debug('   Zoom enabled:', config.zoom.enabled);
+        logger.debug('   Current zoom level:', streamProcessor.zoomLevel);
+        logger.debug('   Last click time:', streamProcessor.lastClickTime);
+        logger.debug('   Time since last click:', Date.now() - streamProcessor.lastClickTime);
+        logger.debug('   Zoom transition active:', streamProcessor.zoomTransition?.active);
     } else {
-        console.log('❌ No StreamProcessor available');
+        logger.debug('No StreamProcessor available');
     }
 };
 
@@ -384,3 +356,4 @@ window.getStreamProcessor = () => streamProcessor;
 window.getRecordingState = () => recordingStateMachine.getState();
 window.getScreenTracker = () => screenTracker;
 window.getMouseTracker = () => mouseTracker;
+window.getLogger = () => logger;
