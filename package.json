@@ -8,7 +8,8 @@
     "dev": "electron . --dev",
     "build": "electron-builder",
     "dist": "electron-builder --publish=never",
-    "pack": "electron-builder --dir"
+    "pack": "electron-builder --dir",
+    "backend": "node backend/server.js"
   },
   "keywords": [
     "screen-recorder",
@@ -31,7 +32,8 @@
   },
   "dependencies": {
     "fluent-ffmpeg": "^2.1.2",
-    "node-screenshots": "^0.1.5"
+    "node-screenshots": "^0.1.5",
+    "express": "^4.18.2"
   },
   "build": {
     "appId": "com.chahalneema.demorecorder",

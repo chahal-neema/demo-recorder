@@ -13,6 +13,10 @@ Demo Recorder is a free Electron based desktop application for Windows, macOS an
    ```bash
    npm start
    ```
+4. (Optional) Start the backend service:
+   ```bash
+   npm run backend
+   ```
 
 ## Building for Windows
 
