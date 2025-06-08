@@ -1,4 +1,4 @@
-const { desktopCapturer, ipcMain, dialog, app } = require('electron');
+const { desktopCapturer, ipcMain, dialog, app, screen } = require('electron');
 const fs = require('fs');
 
 let recording = false;
@@ -59,6 +59,31 @@ function registerHandlers(mainWindow) {
 
   ipcMain.on('recording-stopped', () => {
     recording = false;
+  });
+
+  // System-level mouse tracking for real zoom functionality
+  ipcMain.handle('get-cursor-position', () => {
+    const point = screen.getCursorScreenPoint();
+    return { x: point.x, y: point.y };
+  });
+
+  ipcMain.handle('get-display-info', () => {
+    const displays = screen.getAllDisplays();
+    const primaryDisplay = screen.getPrimaryDisplay();
+    return {
+      displays: displays.map(d => ({
+        id: d.id,
+        bounds: d.bounds,
+        workArea: d.workArea,
+        scaleFactor: d.scaleFactor
+      })),
+      primary: {
+        id: primaryDisplay.id,
+        bounds: primaryDisplay.bounds,
+        workArea: primaryDisplay.workArea,
+        scaleFactor: primaryDisplay.scaleFactor
+      }
+    };
   });
 }
 

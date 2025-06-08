@@ -237,14 +237,21 @@ function updateColorLabel(color) {
   document.querySelector('.color-label').textContent = colorMap[color] || 'Custom';
 }
 
-// Preview Effects System
+// Real Mouse Tracking & Video Processing System
 let previewCanvas = null;
 let previewCtx = null;
-let mousePosition = { x: 0, y: 0 };
+let processingCanvas = null;
+let processingCtx = null;
+let realMousePosition = { x: 0, y: 0 };
+let mouseVelocity = { x: 0, y: 0 };
+let lastMouseTime = 0;
 let lastClickTime = 0;
 let animationFrameId = null;
+let mouseTrackingInterval = null;
+let displayInfo = null;
+let recordingBounds = null;
 
-function initializePreviewEffects() {
+async function initializePreviewEffects() {
   console.log('initializePreviewEffects called');
   const previewContainer = document.querySelector('.preview-container');
   const video = document.getElementById('preview-video');
@@ -254,9 +261,23 @@ function initializePreviewEffects() {
     return;
   }
   
-  console.log('Creating preview canvas...');
+  // Get display information for coordinate mapping
+  displayInfo = await ipcRenderer.invoke('get-display-info');
+  console.log('Display info:', displayInfo);
   
-  // Create overlay canvas for effects
+  // Determine recording bounds based on selected source
+  await setupRecordingBounds();
+  
+  console.log('Creating processing canvases...');
+  
+  // Create processing canvas for actual video processing
+  if (!processingCanvas) {
+    processingCanvas = document.createElement('canvas');
+    processingCtx = processingCanvas.getContext('2d');
+    console.log('Processing canvas created');
+  }
+  
+  // Create preview overlay canvas for visualization
   if (!previewCanvas) {
     previewCanvas = document.createElement('canvas');
     previewCanvas.style.position = 'absolute';
@@ -264,10 +285,10 @@ function initializePreviewEffects() {
     previewCanvas.style.left = '0';
     previewCanvas.style.pointerEvents = 'none';
     previewCanvas.style.zIndex = '10';
-    previewCanvas.style.border = '2px solid red'; // Temporary debug border
+    previewCanvas.style.border = '1px solid rgba(29, 185, 84, 0.5)'; // Subtle debug border
     previewContainer.appendChild(previewCanvas);
     previewCtx = previewCanvas.getContext('2d');
-    console.log('Canvas created and added to container');
+    console.log('Preview overlay canvas created');
   }
   
   // Set canvas size to match video
@@ -283,18 +304,13 @@ function initializePreviewEffects() {
   video.addEventListener('resize', resizeCanvas);
   resizeCanvas();
   
-  // Track mouse movement over preview
-  previewContainer.addEventListener('mousemove', (e) => {
-    const rect = previewCanvas.getBoundingClientRect();
-    mousePosition.x = (e.clientX - rect.left) * (previewCanvas.width / rect.width);
-    mousePosition.y = (e.clientY - rect.top) * (previewCanvas.height / rect.height);
-    console.log('Mouse position:', mousePosition.x, mousePosition.y);
-  });
+  // Start system-level mouse tracking
+  startRealMouseTracking();
   
-  // Track mouse clicks for click effects
+  // Track clicks on preview for effects
   previewContainer.addEventListener('click', (e) => {
     lastClickTime = Date.now();
-    console.log('Click detected at:', mousePosition.x, mousePosition.y);
+    console.log('Click detected');
   });
   
   // Start rendering loop
@@ -304,6 +320,56 @@ function initializePreviewEffects() {
   console.log('Starting render loop...');
   renderPreviewEffects();
 }
+
+async function setupRecordingBounds() {
+  // Get the bounds of what we're actually recording
+  if (!selectedSourceId || !displayInfo) return;
+  
+  if (selectedSourceType === 'screen') {
+    // For screen recording, use display bounds
+    const display = displayInfo.displays.find(d => d.id.toString() === selectedSourceId.split('-')[1]) || displayInfo.primary;
+    recordingBounds = display.bounds;
+    console.log('Recording screen bounds:', recordingBounds);
+  } else {
+    // For window recording, we'd need to get window bounds
+    // For now, use primary display as fallback
+    recordingBounds = displayInfo.primary.bounds;
+    console.log('Recording window bounds (fallback):', recordingBounds);
+  }
+}
+
+function startRealMouseTracking() {
+  if (mouseTrackingInterval) {
+    clearInterval(mouseTrackingInterval);
+  }
+  
+  // High-frequency mouse position polling (60fps)
+  mouseTrackingInterval = setInterval(async () => {
+    try {
+      const currentTime = Date.now();
+      const newPosition = await ipcRenderer.invoke('get-cursor-position');
+      
+      // Calculate velocity for predictive zoom
+      if (lastMouseTime > 0) {
+        const deltaTime = (currentTime - lastMouseTime) / 1000; // seconds
+        mouseVelocity.x = (newPosition.x - realMousePosition.x) / deltaTime;
+        mouseVelocity.y = (newPosition.y - realMousePosition.y) / deltaTime;
+      }
+      
+      realMousePosition = newPosition;
+      lastMouseTime = currentTime;
+      
+      // Convert screen coordinates to recording area coordinates
+      if (recordingBounds) {
+        realMousePosition.relativeX = (newPosition.x - recordingBounds.x) / recordingBounds.width;
+        realMousePosition.relativeY = (newPosition.y - recordingBounds.y) / recordingBounds.height;
+      }
+      
+         } catch (error) {
+       console.error('Error tracking mouse:', error);
+     }
+   }, 16); // ~60fps
+ }
 
 function renderPreviewEffects() {
   if (!previewCtx || !previewCanvas) return;
@@ -326,14 +392,23 @@ function renderPreviewEffects() {
 }
 
 function renderMouseEffects() {
-  if (!config.mouse.highlight) return;
+  if (!config.mouse.highlight || !realMousePosition.relativeX) return;
   
-  const size = config.mouse.highlightSize * 10; // Scale up for visibility
+  // Convert real mouse position to preview coordinates
+  const previewX = realMousePosition.relativeX * previewCanvas.width;
+  const previewY = realMousePosition.relativeY * previewCanvas.height;
+  
+  // Only show effects if mouse is within recording area
+  if (previewX < 0 || previewX > previewCanvas.width || previewY < 0 || previewY > previewCanvas.height) {
+    return;
+  }
+  
+  const size = config.mouse.highlightSize * 8; // Scale for visibility
   const color = config.mouse.highlightColor;
   
   // Draw mouse highlight
   previewCtx.beginPath();
-  previewCtx.arc(mousePosition.x, mousePosition.y, size, 0, 2 * Math.PI);
+  previewCtx.arc(previewX, previewY, size, 0, 2 * Math.PI);
   previewCtx.strokeStyle = color;
   previewCtx.lineWidth = 3;
   previewCtx.stroke();
@@ -345,13 +420,13 @@ function renderMouseEffects() {
     
     switch (config.mouse.clickAnimation) {
       case 'ripple':
-        renderRippleEffect(mousePosition.x, mousePosition.y, progress, color);
+        renderRippleEffect(previewX, previewY, progress, color);
         break;
       case 'pulse':
-        renderPulseEffect(mousePosition.x, mousePosition.y, progress, color);
+        renderPulseEffect(previewX, previewY, progress, color);
         break;
       case 'ring':
-        renderRingEffect(mousePosition.x, mousePosition.y, progress, color);
+        renderRingEffect(previewX, previewY, progress, color);
         break;
     }
   }
@@ -398,14 +473,46 @@ function renderRingEffect(x, y, progress, color) {
 }
 
 function renderZoomIndicators() {
-  // Show zoom level and sensitivity area
-  const centerX = previewCanvas.width / 2;
-  const centerY = previewCanvas.height / 2;
-  const zoomRadius = 100 / config.zoom.level; // Smaller radius = higher zoom
+  if (!realMousePosition.relativeX) return;
   
-  // Draw zoom area indicator
+  // Convert real mouse position to preview coordinates
+  const previewX = realMousePosition.relativeX * previewCanvas.width;
+  const previewY = realMousePosition.relativeY * previewCanvas.height;
+  
+  // Only show zoom indicators if mouse is within recording area
+  if (previewX < 0 || previewX > previewCanvas.width || previewY < 0 || previewY > previewCanvas.height) {
+    return;
+  }
+  
+  // Predictive zoom position (look ahead based on velocity)
+  const lookaheadTime = 0.1; // 100ms prediction
+  const predictedX = previewX + (mouseVelocity.x * lookaheadTime * previewCanvas.width / recordingBounds.width);
+  const predictedY = previewY + (mouseVelocity.y * lookaheadTime * previewCanvas.height / recordingBounds.height);
+  
+  // Clamp predicted position to canvas bounds
+  const clampedX = Math.max(0, Math.min(previewCanvas.width, predictedX));
+  const clampedY = Math.max(0, Math.min(previewCanvas.height, predictedY));
+  
+  const zoomRadius = 80 / config.zoom.level; // Smaller radius = higher zoom
+  
+  // Draw current mouse position
   previewCtx.beginPath();
-  previewCtx.arc(mousePosition.x, mousePosition.y, zoomRadius, 0, 2 * Math.PI);
+  previewCtx.arc(previewX, previewY, 4, 0, 2 * Math.PI);
+  previewCtx.fillStyle = '#1db954';
+  previewCtx.fill();
+  
+  // Draw predicted zoom center
+  if (Math.abs(predictedX - previewX) > 5 || Math.abs(predictedY - previewY) > 5) {
+    previewCtx.beginPath();
+    previewCtx.arc(clampedX, clampedY, 6, 0, 2 * Math.PI);
+    previewCtx.strokeStyle = '#1ed760';
+    previewCtx.lineWidth = 2;
+    previewCtx.stroke();
+  }
+  
+  // Draw zoom area indicator at predicted position
+  previewCtx.beginPath();
+  previewCtx.arc(clampedX, clampedY, zoomRadius, 0, 2 * Math.PI);
   previewCtx.strokeStyle = '#1db954';
   previewCtx.lineWidth = 2;
   previewCtx.setLineDash([5, 5]);
@@ -414,8 +521,16 @@ function renderZoomIndicators() {
   
   // Draw zoom level text
   previewCtx.fillStyle = '#1db954';
-  previewCtx.font = '14px Inter, sans-serif';
-  previewCtx.fillText(`${config.zoom.level}x`, mousePosition.x + zoomRadius + 10, mousePosition.y);
+  previewCtx.font = '12px Inter, sans-serif';
+  previewCtx.fillText(`${config.zoom.level}x`, clampedX + zoomRadius + 5, clampedY - 5);
+  
+  // Show velocity magnitude for debugging
+  const velocityMagnitude = Math.sqrt(mouseVelocity.x * mouseVelocity.x + mouseVelocity.y * mouseVelocity.y);
+  if (velocityMagnitude > 50) { // Only show if moving fast
+    previewCtx.fillStyle = '#ffff00';
+    previewCtx.font = '10px Inter, sans-serif';
+    previewCtx.fillText(`Speed: ${velocityMagnitude.toFixed(0)}px/s`, clampedX + zoomRadius + 5, clampedY + 10);
+  }
 }
 
 function initializeZoomMouseSettings() {
