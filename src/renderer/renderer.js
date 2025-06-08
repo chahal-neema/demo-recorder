@@ -3,6 +3,16 @@ const { ipcRenderer } = require('electron');
 let mediaRecorder;
 let recordedChunks = [];
 let selectedSourceId = null;
+let isRecording = false;
+
+const settings = {
+  highlightClicks: true,
+  zoomOnClicks: false,
+  zoomScale: 2
+};
+
+const highlightSize = 40;
+const highlightDuration = 600;
 
 async function loadSources() {
   const sources = await ipcRenderer.invoke('get-sources');
@@ -47,6 +57,7 @@ function startRecording() {
   document.getElementById('status-text').textContent = 'Recording';
   document.getElementById('pause-recording').disabled = false;
   document.getElementById('stop-recording').disabled = false;
+  isRecording = true;
 }
 
 function pauseRecording() {
@@ -64,6 +75,7 @@ function stopRecording() {
   document.getElementById('status-text').textContent = 'Processing...';
   document.getElementById('pause-recording').disabled = true;
   document.getElementById('stop-recording').disabled = true;
+  isRecording = false;
 }
 
 async function handleStop() {
@@ -77,5 +89,42 @@ document.getElementById('refresh-sources').addEventListener('click', loadSources
 document.getElementById('start-recording').addEventListener('click', startRecording);
 document.getElementById('pause-recording').addEventListener('click', pauseRecording);
 document.getElementById('stop-recording').addEventListener('click', stopRecording);
+
+document.getElementById('highlight-clicks').addEventListener('change', (e) => {
+  settings.highlightClicks = e.target.checked;
+});
+document.getElementById('zoom-clicks').addEventListener('change', (e) => {
+  settings.zoomOnClicks = e.target.checked;
+});
+document.getElementById('zoom-scale').addEventListener('change', (e) => {
+  settings.zoomScale = parseFloat(e.target.value) || 2;
+});
+
+document.addEventListener('click', (e) => {
+  if (!isRecording) return;
+  if (settings.highlightClicks) showClickHighlight(e.clientX, e.clientY);
+  if (settings.zoomOnClicks) applyZoom(e.clientX, e.clientY);
+});
+
+function showClickHighlight(x, y) {
+  const div = document.createElement('div');
+  div.className = 'click-highlight';
+  div.style.left = `${x - highlightSize / 2}px`;
+  div.style.top = `${y - highlightSize / 2}px`;
+  div.style.width = `${highlightSize}px`;
+  div.style.height = `${highlightSize}px`;
+  document.body.appendChild(div);
+  setTimeout(() => div.remove(), highlightDuration);
+}
+
+function applyZoom(x, y) {
+  const html = document.documentElement;
+  html.style.transition = 'transform 0.2s ease';
+  html.style.transformOrigin = `${x}px ${y}px`;
+  html.style.transform = `scale(${settings.zoomScale})`;
+  setTimeout(() => {
+    html.style.transform = '';
+  }, highlightDuration);
+}
 
 loadSources();
