@@ -7,11 +7,22 @@ class StreamProcessor {
         this.processedStream = null;
         this.originalStream = null;
         this.animationFrameId = null;
+        
+        // Initialize with clean state
+        this.resetZoomState();
+        console.log('🎬 StreamProcessor created with clean 1.0x zoom state');
+    }
+    
+    resetZoomState() {
+        // Reset all zoom and mouse tracking state
         this.mousePosition = { x: 0, y: 0, relativeX: -1, relativeY: -1 };
         this.lastMouseMove = { x: 0, y: 0, time: 0 };
         this.lastActivityTime = 0;
         this.recordingBounds = null;
         this.lastClickTime = 0;
+        this.lastZoomCheck = 0;
+        this.lastForceCheck = 0;
+        this.recordingStartTime = 0;
         this.zoomLevel = 1.0;
         this.targetZoomLevel = 1.0;
         this.zoomCenter = { x: 0.5, y: 0.5 };
@@ -25,9 +36,29 @@ class StreamProcessor {
             startTime: 0,
             duration: 500 // ms
         };
+        
+        console.log('🔄 Zoom state reset to clean 1.0x state');
     }
 
     async initialize(originalStream, recordingBounds) {
+        console.log('🏁 StreamProcessor.initialize called');
+        console.log('   Original stream:', originalStream);
+        console.log('   Recording bounds:', recordingBounds);
+        console.log('   Config at initialization:', {
+            zoom: config.zoom,
+            mouse: config.mouse
+        });
+        
+        // Always start with clean state - no leftover zoom
+        this.resetZoomState();
+        
+        // FORCE zoom to 1.0x at initialization
+        this.zoomLevel = 1.0;
+        this.targetZoomLevel = 1.0;
+        this.recordingStartTime = Date.now(); // Track recording start time
+        console.log('🔧 FORCED zoom reset: zoomLevel=', this.zoomLevel, 'targetZoomLevel=', this.targetZoomLevel);
+        console.log('🎬 Recording started at:', this.recordingStartTime, '- Grace period: 4 seconds');
+        
         this.originalStream = originalStream;
         this.recordingBounds = recordingBounds;
         
@@ -41,6 +72,8 @@ class StreamProcessor {
         
         this.canvas.width = settings.width || 1920;
         this.canvas.height = settings.height || 1080;
+        
+        console.log('   Canvas dimensions:', this.canvas.width, 'x', this.canvas.height);
         
         // Create video element for drawing source
         this.sourceVideo = document.createElement('video');
@@ -60,13 +93,17 @@ class StreamProcessor {
             this.processedStream.addTrack(track);
         });
         
+        console.log('   Processed stream created with', this.processedStream.getTracks().length, 'tracks');
+        
         this.startProcessing();
+        console.log('✅ StreamProcessor initialization complete');
         return this.processedStream;
     }
 
     getVelocityThreshold() {
         // Higher sensitivity -> lower threshold
-        const base = 0.7; // px/ms
+        // Increased base threshold to prevent tiny movements from triggering zoom
+        const base = 2.0; // px/ms (was 0.7)
         return base * (11 - config.zoom.sensitivity) / 10;
     }
 
@@ -91,45 +128,136 @@ class StreamProcessor {
                 this.zoomCenterTarget.y = Math.min(1, Math.max(0, position.relativeY));
             }
 
+                    // Only check zoom state every 500ms instead of every frame (60fps)
+        if (!this.lastZoomCheck || now - this.lastZoomCheck > 500) {
+            this.lastZoomCheck = now;
             this.handleZoomTrigger();
+        }
+        
+        // Additional aggressive zoom-out check every 2 seconds
+        if (!this.lastForceCheck || now - this.lastForceCheck > 2000) {
+            this.lastForceCheck = now;
+            this.forceZoomOutIfNeeded();
+        }
         }
     }
 
     handleZoomTrigger() {
         const now = Date.now();
+        const timeSinceRecordingStart = now - this.recordingStartTime;
+        const gracePeriod = 4000; // 4 seconds grace period
         let shouldZoom = false;
+        
+        console.log('🎯 handleZoomTrigger called');
+        console.log('   Current time:', now);
+        console.log('   Time since recording start:', timeSinceRecordingStart);
+        console.log('   Last click time:', this.lastClickTime);
+        console.log('   Time since click:', now - this.lastClickTime);
+        console.log('   Last activity time:', this.lastActivityTime);
+        
+        // Force 1x zoom for the first few seconds regardless of clicks
+        if (timeSinceRecordingStart < gracePeriod) {
+            console.log('📺 GRACE PERIOD ACTIVE - Forcing 1x zoom for first', gracePeriod/1000, 'seconds');
+            console.log('   Remaining grace time:', (gracePeriod - timeSinceRecordingStart) / 1000, 'seconds');
+            
+            this.targetZoomLevel = 1.0;
+            
+            // Still need to transition if we're not at 1.0x
+            if (Math.abs(this.targetZoomLevel - this.zoomLevel) > 0.05) {
+                console.log('🚀 Grace period zoom transition to 1.0x');
+                this.startZoomTransition();
+            }
+            return;
+        }
+        
+        console.log('✅ Grace period ended - Normal zoom behavior active');
 
         switch (config.zoom.trigger) {
             case 'mouse':
-                shouldZoom = now - this.lastActivityTime < 3000;
+                shouldZoom = now - this.lastActivityTime < 8000; // 8 seconds for better UX
+                console.log('   Mouse trigger - shouldZoom:', shouldZoom);
                 break;
             case 'click':
-                shouldZoom = now - this.lastClickTime < 2000;
+                shouldZoom = now - this.lastClickTime < 8000; // 8 seconds for better UX
+                console.log('   Click trigger - shouldZoom:', shouldZoom);
                 break;
             case 'both':
-                shouldZoom = (now - this.lastActivityTime < 3000) ||
-                              (now - this.lastClickTime < 2000);
+                shouldZoom = (now - this.lastActivityTime < 8000) ||
+                              (now - this.lastClickTime < 8000);
+                console.log('   Both trigger - shouldZoom:', shouldZoom);
                 break;
             case 'keyboard':
+                console.log('   Keyboard trigger - not implemented');
                 break;
         }
 
-        this.targetZoomLevel = shouldZoom ? config.zoom.level : 1.0;
+        const newTargetZoomLevel = shouldZoom ? config.zoom.level : 1.0;
         
-        // Start zoom transition if level changed
-        if (Math.abs(this.targetZoomLevel - this.zoomLevel) > 0.01) {
+        // Force zoom out if we've been zoomed in too long without activity
+        if (!shouldZoom && this.zoomLevel > 1.0) {
+            console.log('⏰ Zoom timeout reached - forcing zoom out to 1.0x');
+        }
+        
+        this.targetZoomLevel = newTargetZoomLevel;
+        console.log('   Target zoom level:', this.targetZoomLevel);
+        console.log('   Current zoom level:', this.zoomLevel);
+        console.log('   Zoom level difference:', Math.abs(this.targetZoomLevel - this.zoomLevel));
+        
+        // Start zoom transition if level changed significantly
+        if (Math.abs(this.targetZoomLevel - this.zoomLevel) > 0.05) {
+            console.log('🚀 Starting zoom transition from', this.zoomLevel, 'to', this.targetZoomLevel);
+            this.startZoomTransition();
+        } else {
+            console.log('⏸️ No zoom transition needed - difference too small');
+        }
+    }
+    
+    forceZoomOutIfNeeded() {
+        const now = Date.now();
+        const timeSinceRecordingStart = now - this.recordingStartTime;
+        const gracePeriod = 4000; // 4 seconds grace period
+        
+        // During grace period, always force 1x zoom
+        if (timeSinceRecordingStart < gracePeriod) {
+            if (this.zoomLevel > 1.1) {
+                console.log('📺 GRACE PERIOD: Forcing zoom to 1x');
+                this.targetZoomLevel = 1.0;
+                this.startZoomTransition();
+            }
+            return;
+        }
+        
+        // Normal force zoom-out logic after grace period
+        const timeSinceClick = now - this.lastClickTime;
+        const timeSinceActivity = now - this.lastActivityTime;
+        
+        // Force zoom out if we've been zoomed and no recent activity (more generous timeout)
+        if (this.zoomLevel > 1.1 && timeSinceClick > 10000 && timeSinceActivity > 10000) {
+            console.log('🔥 FORCE ZOOM OUT: Been zoomed too long without activity');
+            console.log('   Time since click:', timeSinceClick);
+            console.log('   Time since activity:', timeSinceActivity);
+            console.log('   Current zoom:', this.zoomLevel);
+            
+            this.targetZoomLevel = 1.0;
             this.startZoomTransition();
         }
     }
 
     startZoomTransition() {
+        const duration = (6 - config.zoom.speed) * 100;
+        console.log('⚡ startZoomTransition called');
+        console.log('   Zoom speed setting:', config.zoom.speed);
+        console.log('   Calculated duration:', duration, 'ms');
+        
         this.zoomTransition = {
             active: true,
             startLevel: this.zoomLevel,
             targetLevel: this.targetZoomLevel,
             startTime: Date.now(),
-            duration: (6 - config.zoom.speed) * 100 // Convert speed to duration
+            duration: duration
         };
+        
+        console.log('   Zoom transition started:', this.zoomTransition);
     }
 
     updateZoomCenter() {
@@ -148,10 +276,18 @@ class StreamProcessor {
         // Smooth easing function
         const easeProgress = 1 - Math.pow(1 - progress, 3);
         
+        const oldZoomLevel = this.zoomLevel;
         this.zoomLevel = this.zoomTransition.startLevel + 
             (this.zoomTransition.targetLevel - this.zoomTransition.startLevel) * easeProgress;
         
+        // Log zoom progress occasionally (every 10 frames)
+        if (Math.floor(progress * 100) % 10 === 0) {
+            console.log('🔄 Zoom progress:', Math.floor(progress * 100) + '%', 
+                       'Level:', this.zoomLevel.toFixed(2));
+        }
+        
         if (progress >= 1) {
+            console.log('✅ Zoom transition completed. Final level:', this.zoomLevel);
             this.zoomTransition.active = false;
             this.zoomLevel = this.zoomTransition.targetLevel;
         }
@@ -277,17 +413,76 @@ class StreamProcessor {
         }
     }
 
+    handleClick(x, y) {
+        // Convert click coordinates to relative position
+        const relativeX = x / this.canvas.width;
+        const relativeY = y / this.canvas.height;
+        
+        // Update mouse position with click location
+        this.mousePosition = {
+            x: x,
+            y: y,
+            relativeX: relativeX,
+            relativeY: relativeY
+        };
+        
+        this.onMouseClick();
+    }
+
     onMouseClick() {
-        this.lastClickTime = Date.now();
-        this.lastActivityTime = this.lastClickTime;
+        const clickTime = Date.now();
+        const timeSinceRecordingStart = clickTime - this.recordingStartTime;
+        const gracePeriod = 4000; // 4 seconds grace period
+        
+        console.log('🖱️ Click detected in StreamProcessor!');
+        console.log('   Zoom enabled:', config.zoom.enabled);
+        console.log('   Zoom trigger:', config.zoom.trigger);
+        console.log('   Current zoom level:', this.zoomLevel);
+        console.log('   Mouse position:', this.mousePosition);
+        console.log('   Click timestamp:', clickTime);
+        console.log('⏰ Time since last click:', clickTime - this.lastClickTime, 'ms');
+        console.log('🎬 Time since recording start:', timeSinceRecordingStart, 'ms');
+        
+        // Show grace period status
+        if (timeSinceRecordingStart < gracePeriod) {
+            console.log('📺 CLICK DURING GRACE PERIOD - Will be ignored for zoom');
+            console.log('   Grace period remaining:', (gracePeriod - timeSinceRecordingStart) / 1000, 'seconds');
+        } else {
+            console.log('✅ Click after grace period - Will trigger zoom');
+        }
+        
+        this.lastClickTime = clickTime;
+        this.lastActivityTime = clickTime;
         this.zoomCenterTarget.x = this.mousePosition.relativeX;
         this.zoomCenterTarget.y = this.mousePosition.relativeY;
 
         if (config.zoom.enabled && (config.zoom.trigger === 'click' || config.zoom.trigger === 'both')) {
+            console.log('🔍 Triggering zoom...');
+            // Reset zoom check timer so click triggers immediately
+            this.lastZoomCheck = clickTime;
             this.handleZoomTrigger();
+        } else {
+            console.log('❌ Zoom not triggered - conditions not met');
+            console.log('   Config check:', {
+                enabled: config.zoom.enabled,
+                trigger: config.zoom.trigger,
+                isClickTrigger: config.zoom.trigger === 'click',
+                isBothTrigger: config.zoom.trigger === 'both'
+            });
         }
     }
 
+    // Debug function to test zoom manually
+    testZoom() {
+        console.log('🧪 Manual zoom test triggered');
+        this.lastClickTime = Date.now();
+        this.lastActivityTime = this.lastClickTime;
+        this.zoomCenterTarget.x = 0.5; // Center of screen
+        this.zoomCenterTarget.y = 0.5;
+        this.lastZoomCheck = this.lastClickTime;
+        this.handleZoomTrigger();
+    }
+    
     destroy() {
         if (this.animationFrameId) {
             cancelAnimationFrame(this.animationFrameId);
