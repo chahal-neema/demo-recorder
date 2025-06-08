@@ -39,6 +39,23 @@ header {
   flex-shrink: 0;
 }
 
+.source-types {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.source-type-btn {
+  background: #3e3e3e;
+  color: #ffffff;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.source-type-btn.active {
+  background: #1db954;
+}
+
 .source-grid {
   display: flex;
   flex-wrap: wrap;

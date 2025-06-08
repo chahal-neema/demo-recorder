@@ -4,6 +4,7 @@ let mediaRecorder;
 let recordedChunks = [];
 let selectedSourceId = null;
 let currentStream = null;
+let selectedSourceType = 'screen';
 const config = {
   zoom: {
     enabled: false,
@@ -23,7 +24,7 @@ const config = {
 };
 
 async function loadSources() {
-  const sources = await ipcRenderer.invoke('get-sources');
+  const sources = await ipcRenderer.invoke('get-sources', selectedSourceType);
   const grid = document.getElementById('source-grid');
   grid.innerHTML = '';
   sources.forEach((source) => {
@@ -201,6 +202,17 @@ document.getElementById('include-audio').addEventListener('change', () => {
 });
 document.getElementById('include-microphone').addEventListener('change', () => {
   if (selectedSourceId) selectSource(selectedSourceId);
+});
+
+document.querySelectorAll('.source-type-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document
+      .querySelectorAll('.source-type-btn')
+      .forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    selectedSourceType = btn.getAttribute('data-type');
+    loadSources();
+  });
 });
 
 loadSources();

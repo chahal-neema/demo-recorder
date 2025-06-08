@@ -4,10 +4,22 @@ const fs = require('fs');
 let recording = false;
 
 function registerHandlers(mainWindow) {
-  ipcMain.handle('get-sources', async () => {
+  ipcMain.handle('get-sources', async (event, type = 'all') => {
     try {
+      let types;
+      switch (type) {
+        case 'screen':
+          types = ['screen'];
+          break;
+        case 'window':
+        case 'tab':
+          types = ['window'];
+          break;
+        default:
+          types = ['window', 'screen'];
+      }
       const sources = await desktopCapturer.getSources({
-        types: ['window', 'screen'],
+        types,
         thumbnailSize: { width: 320, height: 180 }
       });
       return sources;
