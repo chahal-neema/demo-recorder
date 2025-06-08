@@ -212,6 +212,19 @@ function updatePreviewStatus() {
   preview.classList.add('active');
 }
 
+function updateColorLabel(color) {
+  const colorMap = {
+    '#1db954': 'Green',
+    '#ff0000': 'Red', 
+    '#0000ff': 'Blue',
+    '#ffff00': 'Yellow',
+    '#ff00ff': 'Magenta',
+    '#00ffff': 'Cyan',
+    '#ffffff': 'White'
+  };
+  document.querySelector('.color-label').textContent = colorMap[color] || 'Custom';
+}
+
 function initializeZoomMouseSettings() {
   const enableZoom = document.getElementById('enable-zoom');
   const zoomSettings = document.getElementById('zoom-settings');
@@ -238,6 +251,8 @@ function initializeZoomMouseSettings() {
 
   document.getElementById('zoom-speed').addEventListener('input', function () {
     config.zoom.speed = parseInt(this.value, 10);
+    const speeds = ['Very Slow', 'Slow', 'Medium', 'Fast', 'Very Fast'];
+    document.getElementById('zoom-speed-value').textContent = speeds[this.value - 1];
   });
 
   document.getElementById('zoom-trigger').addEventListener('change', function () {
@@ -246,6 +261,8 @@ function initializeZoomMouseSettings() {
 
   document.getElementById('zoom-sensitivity').addEventListener('input', function () {
     config.zoom.sensitivity = parseInt(this.value, 10);
+    const levels = ['Very Low', 'Low', 'Low-Med', 'Medium', 'Med-High', 'High', 'Higher', 'Very High', 'Maximum', 'Ultra'];
+    document.getElementById('zoom-sensitivity-value').textContent = levels[this.value - 1];
   });
 
   document.getElementById('mouse-highlight').addEventListener('change', function () {
@@ -258,10 +275,13 @@ function initializeZoomMouseSettings() {
 
   document.getElementById('highlight-size').addEventListener('input', function () {
     config.mouse.highlightSize = parseInt(this.value, 10);
+    const sizes = ['Small', 'Medium-Small', 'Medium', 'Medium-Large', 'Large'];
+    document.getElementById('highlight-size-value').textContent = sizes[this.value - 1];
   });
 
   document.getElementById('highlight-color').addEventListener('change', function () {
     config.mouse.highlightColor = this.value;
+    updateColorLabel(this.value);
   });
 
   document.getElementById('click-animation').addEventListener('change', function () {
