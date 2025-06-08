@@ -248,3 +248,52 @@ button {
 .zoom-preview.active {
   display: block;
 }
+
+/* Fix disabled button states */
+.btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none !important;
+}
+
+/* Prevent hover effects on disabled buttons */
+.btn-primary:disabled {
+    background: #1db954;
+    opacity: 0.4;
+}
+
+.btn-warning:disabled {
+    background: #ffa500;
+    opacity: 0.4;
+}
+
+.btn-danger:disabled {
+    background: #e22134;
+    opacity: 0.4;
+}
+
+.btn-secondary:disabled {
+    background: #3e3e3e;
+    opacity: 0.4;
+}
+
+/* Improve hover states - only when not disabled */
+.btn-primary:hover:not(:disabled) {
+    background: #1ed760;
+    transform: translateY(-1px);
+}
+
+.btn-warning:hover:not(:disabled) {
+    background: #ffb84d;
+    transform: translateY(-1px);
+}
+
+.btn-danger:hover:not(:disabled) {
+    background: #ff4757;
+    transform: translateY(-1px);
+}
+
+.btn-secondary:hover:not(:disabled) {
+    background: #575757;
+    transform: translateY(-1px);
+}
