@@ -12,7 +12,6 @@ function registerHandlers(mainWindow) {
           types = ['screen'];
           break;
         case 'window':
-        case 'tab':
           types = ['window'];
           break;
         default:
