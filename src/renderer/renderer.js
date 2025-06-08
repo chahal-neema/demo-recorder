@@ -4,6 +4,23 @@ let mediaRecorder;
 let recordedChunks = [];
 let selectedSourceId = null;
 let currentStream = null;
+const config = {
+  zoom: {
+    enabled: false,
+    level: 1.5,
+    speed: 3,
+    trigger: 'click',
+    sensitivity: 5
+  },
+  mouse: {
+    enabled: true,
+    highlight: true,
+    clickEffects: false,
+    highlightSize: 3,
+    highlightColor: '#1db954',
+    clickAnimation: 'ripple'
+  }
+};
 
 async function loadSources() {
   const sources = await ipcRenderer.invoke('get-sources');
@@ -70,10 +87,12 @@ async function selectSource(sourceId) {
   mediaRecorder.onstop = handleStop;
 
   document.getElementById('start-recording').disabled = false;
+  updatePreviewStatus();
 }
 
 function startRecording() {
   if (!mediaRecorder) return;
+  console.log('Recording Configuration:', config);
   mediaRecorder.start();
   document.getElementById('status-text').textContent = 'Recording';
   document.getElementById('pause-recording').disabled = false;
@@ -104,6 +123,75 @@ async function handleStop() {
   document.getElementById('status-text').textContent = 'Ready';
 }
 
+function updatePreviewStatus() {
+  const preview = document.getElementById('zoom-preview');
+  if (!selectedSourceId) {
+    preview.classList.remove('active');
+    return;
+  }
+  const zoomText = config.zoom.enabled ? `Zoom: ${config.zoom.level}x` : 'Zoom: OFF';
+  const mouseText = config.mouse.enabled ? 'Mouse Tracking: ON' : 'Mouse Tracking: OFF';
+  preview.textContent = `${zoomText} | ${mouseText}`;
+  preview.classList.add('active');
+}
+
+function initializeZoomMouseSettings() {
+  const enableZoom = document.getElementById('enable-zoom');
+  const zoomSettings = document.getElementById('zoom-settings');
+  const enableMouse = document.getElementById('enable-mouse-tracking');
+  const mouseSettings = document.getElementById('mouse-settings');
+
+  enableZoom.addEventListener('change', function () {
+    config.zoom.enabled = this.checked;
+    zoomSettings.classList.toggle('disabled', !this.checked);
+    updatePreviewStatus();
+  });
+
+  enableMouse.addEventListener('change', function () {
+    config.mouse.enabled = this.checked;
+    mouseSettings.classList.toggle('disabled', !this.checked);
+    updatePreviewStatus();
+  });
+
+  document.getElementById('zoom-level').addEventListener('input', function () {
+    config.zoom.level = parseFloat(this.value);
+    document.getElementById('zoom-level-value').textContent = `${this.value}x`;
+    updatePreviewStatus();
+  });
+
+  document.getElementById('zoom-speed').addEventListener('input', function () {
+    config.zoom.speed = parseInt(this.value, 10);
+  });
+
+  document.getElementById('zoom-trigger').addEventListener('change', function () {
+    config.zoom.trigger = this.value;
+  });
+
+  document.getElementById('zoom-sensitivity').addEventListener('input', function () {
+    config.zoom.sensitivity = parseInt(this.value, 10);
+  });
+
+  document.getElementById('mouse-highlight').addEventListener('change', function () {
+    config.mouse.highlight = this.checked;
+  });
+
+  document.getElementById('click-effects').addEventListener('change', function () {
+    config.mouse.clickEffects = this.checked;
+  });
+
+  document.getElementById('highlight-size').addEventListener('input', function () {
+    config.mouse.highlightSize = parseInt(this.value, 10);
+  });
+
+  document.getElementById('highlight-color').addEventListener('change', function () {
+    config.mouse.highlightColor = this.value;
+  });
+
+  document.getElementById('click-animation').addEventListener('change', function () {
+    config.mouse.clickAnimation = this.value;
+  });
+}
+
 document.getElementById('refresh-sources').addEventListener('click', loadSources);
 document.getElementById('start-recording').addEventListener('click', startRecording);
 document.getElementById('pause-recording').addEventListener('click', pauseRecording);
@@ -116,3 +204,5 @@ document.getElementById('include-microphone').addEventListener('change', () => {
 });
 
 loadSources();
+initializeZoomMouseSettings();
+updatePreviewStatus();
