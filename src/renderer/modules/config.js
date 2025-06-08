@@ -1,8 +1,8 @@
 const config = {
   zoom: {
     enabled: false,
-    level: 1.5,
-    speed: 3,
+    level: 2.0,      // More noticeable zoom (was 1.5)
+    speed: 2,        // Slower, smoother transition (was 3)
     trigger: 'click',
     sensitivity: 5,
   },
