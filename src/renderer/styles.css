@@ -179,7 +179,7 @@ body {
 
 .source-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 15px;
     margin-bottom: 20px;
     max-height: 300px;
@@ -188,14 +188,16 @@ body {
 
 .source-item {
     display: flex;
-    align-items: center;
-    gap: 15px;
-    padding: 15px;
-    border-radius: 8px;
+    flex-direction: column;
+    gap: 10px;
+    padding: 10px;
+    border-radius: 12px;
     background: rgba(255, 255, 255, 0.05);
     border: 2px solid transparent;
     cursor: pointer;
     transition: all 0.3s ease;
+    text-align: center;
+    overflow: hidden;
 }
 
 .source-item:hover {
@@ -209,22 +211,28 @@ body {
     box-shadow: 0 0 20px rgba(29, 185, 84, 0.2);
 }
 
-.source-thumbnail img {
+.source-item img {
     width: 100%;
-    height: auto;
-    border-radius: 4px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    aspect-ratio: 16 / 9;
+    object-fit: cover;
+    border-radius: 8px;
+    background-color: #000;
 }
 
 .source-info {
     flex: 1;
+    width: 100%;
+    overflow: hidden;
 }
 
 .source-name {
-    font-weight: 600;
-    font-size: 14px;
-    color: #ffffff;
-    margin-bottom: 4px;
+    font-weight: 500;
+    font-size: 13px;
+    color: #e0e0e0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    width: 100%;
 }
 
 /* Recording Options */
