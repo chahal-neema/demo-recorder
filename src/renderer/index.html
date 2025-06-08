@@ -25,12 +25,15 @@
             <div class="controls-panel">
                 <div class="source-selection">
                     <h3>📺 Select Recording Source</h3>
+                    
                     <div class="source-types">
                         <button class="source-type-btn active" data-type="screen">🖥️ Screen</button>
                         <button class="source-type-btn" data-type="window">🪟 Window</button>
                     </div>
+
                     <div class="source-list-container">
-                        <div class="source-grid" id="source-grid"></div>
+                        <div class="source-grid" id="source-grid">
+                        </div>
                         <button id="refresh-sources" class="btn btn-secondary">🔄 Refresh Sources</button>
                     </div>
                 </div>
@@ -38,13 +41,20 @@
                 <div class="recording-options">
                     <h3>⚙️ Recording Options</h3>
                     <div class="option-group">
-                        <label><input type="checkbox" id="include-audio" checked> Include System Audio</label>
+                        <label>
+                            <input type="checkbox" id="include-audio" checked>
+                            Include System Audio
+                        </label>
                     </div>
                     <div class="option-group">
-                        <label><input type="checkbox" id="include-microphone"> Include Microphone</label>
+                        <label>
+                            <input type="checkbox" id="include-microphone">
+                            Include Microphone
+                        </label>
                     </div>
                     <div class="option-group">
-                        <label>Quality:
+                        <label>
+                            Quality:
                             <select id="quality-select">
                                 <option value="high">High (1080p)</option>
                                 <option value="medium" selected>Medium (720p)</option>
@@ -53,7 +63,8 @@
                         </label>
                     </div>
                     <div class="option-group">
-                        <label>Frame Rate:
+                        <label>
+                            Frame Rate:
                             <select id="framerate-select">
                                 <option value="60">60 FPS</option>
                                 <option value="30" selected>30 FPS</option>
@@ -66,76 +77,97 @@
 
                 <div class="zoom-mouse-options">
                     <h3>🔍 Zoom & Mouse Tracking</h3>
+                    
                     <div class="feature-toggle">
-                        <label class="toggle-label">
+                        <label class="toggle-label" for="enable-zoom">
                             <input type="checkbox" id="enable-zoom" class="toggle-input">
                             <span class="toggle-slider"></span>
                             <span class="toggle-text">Smart Zoom</span>
                         </label>
                         <p class="feature-description">Automatically zoom into areas of activity</p>
                     </div>
+
                     <div class="zoom-settings disabled" id="zoom-settings">
                         <div class="option-group">
-                            <label class="range-label">Zoom Level:
+                            <label class="range-label" for="zoom-level">
+                                Zoom Level:
                                 <span class="range-value" id="zoom-level-value">1.5x</span>
                             </label>
-                            <input type="range" id="zoom-level" min="1.2" max="3.0" step="0.1" value="1.5" class="custom-range" aria-label="Zoom Level">
+                            <input type="range" id="zoom-level" min="1.2" max="3.0" step="0.1" value="1.5" class="custom-range">
                         </div>
+
                         <div class="option-group">
-                            <label class="range-label">Zoom Speed:
+                            <label class="range-label" for="zoom-speed">
+                                Zoom Speed:
                                 <span class="range-value" id="zoom-speed-value">Medium</span>
                             </label>
-                            <input type="range" id="zoom-speed" min="1" max="5" step="1" value="3" class="custom-range" aria-label="Zoom Speed">
+                            <input type="range" id="zoom-speed" min="1" max="5" step="1" value="3" class="custom-range">
                         </div>
+
                         <div class="option-group">
-                            <label>Zoom Trigger:
+                            <label for="zoom-trigger">
+                                Zoom Trigger:
                                 <select id="zoom-trigger">
                                     <option value="mouse">Mouse Movement</option>
                                     <option value="click" selected>Mouse Clicks</option>
                                     <option value="both">Both</option>
-                                    <option value="keyboard">Keyboard Activity</option>
                                 </select>
                             </label>
                         </div>
+
                         <div class="option-group">
-                            <label class="range-label">Sensitivity:
+                            <label class="range-label" for="zoom-sensitivity">
+                                Sensitivity:
                                 <span class="range-value" id="zoom-sensitivity-value">Medium</span>
                             </label>
-                            <input type="range" id="zoom-sensitivity" min="1" max="10" step="1" value="5" class="custom-range" aria-label="Sensitivity">
+                            <input type="range" id="zoom-sensitivity" min="1" max="10" step="1" value="5" class="custom-range">
                         </div>
                     </div>
 
                     <div class="feature-toggle">
-                        <label class="toggle-label">
+                        <label class="toggle-label" for="enable-mouse-tracking">
                             <input type="checkbox" id="enable-mouse-tracking" class="toggle-input" checked>
                             <span class="toggle-slider"></span>
                             <span class="toggle-text">Mouse Tracking</span>
                         </label>
                         <p class="feature-description">Enhanced cursor visibility and effects</p>
                     </div>
+
                     <div class="mouse-settings" id="mouse-settings">
                         <div class="option-group">
-                            <label><input type="checkbox" id="mouse-highlight" checked> Cursor Highlight</label>
+                            <label>
+                                <input type="checkbox" id="mouse-highlight" checked>
+                                Cursor Highlight
+                            </label>
                         </div>
+
                         <div class="option-group">
-                            <label><input type="checkbox" id="click-effects"> Click Effects</label>
+                            <label>
+                                <input type="checkbox" id="click-effects">
+                                Click Effects
+                            </label>
                         </div>
+
                         <div class="option-group">
-                            <label class="range-label">Highlight Size:
+                            <label class="range-label" for="highlight-size">
+                                Highlight Size:
                                 <span class="range-value" id="highlight-size-value">Medium</span>
                             </label>
-                            <input type="range" id="highlight-size" min="1" max="5" step="1" value="3" class="custom-range" aria-label="Highlight Size">
+                            <input type="range" id="highlight-size" min="1" max="5" step="1" value="3" class="custom-range">
                         </div>
+
                         <div class="option-group">
-                            <label>Highlight Color:
+                            <label for="highlight-color">
+                                Highlight Color:
                                 <div class="color-picker-container">
-                                    <input type="color" id="highlight-color" value="#1db954" class="color-picker" aria-label="Highlight Color">
-                                    <span class="color-label">Green</span>
+                                    <input type="color" id="highlight-color" value="#1db954" class="color-picker">
                                 </div>
                             </label>
                         </div>
+
                         <div class="option-group">
-                            <label>Click Animation:
+                            <label for="click-animation">
+                                Click Animation:
                                 <select id="click-animation">
                                     <option value="ripple" selected>Ripple Effect</option>
                                     <option value="pulse">Pulse</option>
@@ -148,9 +180,15 @@
                 </div>
 
                 <div class="recording-controls">
-                    <button id="start-recording" class="btn btn-primary" disabled>⏺️ Start Recording</button>
-                    <button id="pause-recording" class="btn btn-warning" disabled>⏸️ Pause</button>
-                    <button id="stop-recording" class="btn btn-danger" disabled>⏹️ Stop</button>
+                    <button id="start-recording" class="btn btn-primary" disabled>
+                        ⏺️ Start Recording
+                    </button>
+                    <button id="pause-recording" class="btn btn-warning" disabled>
+                        ⏸️ Pause
+                    </button>
+                    <button id="stop-recording" class="btn btn-danger" disabled>
+                        ⏹️ Stop
+                    </button>
                 </div>
             </div>
 
@@ -158,9 +196,14 @@
                 <h3>👁️ Preview</h3>
                 <div class="preview-container">
                     <video id="preview-video" autoplay muted></video>
-                    <div id="preview-placeholder" class="preview-placeholder"><p>Select a source to see preview</p></div>
-                    <div class="zoom-preview" id="zoom-preview">Zoom: 1.5x | Mouse Tracking: ON</div>
+                    <div id="preview-placeholder" class="preview-placeholder">
+                        <p>Select a source to see preview</p>
+                    </div>
+                    <div class="zoom-preview" id="zoom-preview">
+                        Zoom: 1.5x | Mouse Tracking: ON
+                    </div>
                 </div>
+                
                 <div class="recordings-section">
                     <h3>📁 Recent Recordings</h3>
                     <div id="recordings-list" class="recordings-list">
@@ -176,7 +219,6 @@
                 <p>Your recording is ready. Choose what to do:</p>
                 <div class="modal-actions">
                     <button id="save-file" class="btn btn-primary">💾 Save to File</button>
-                    <button id="preview-recording" class="btn btn-secondary">👁️ Preview</button>
                     <button id="discard-recording" class="btn btn-danger">🗑️ Discard</button>
                 </div>
             </div>
