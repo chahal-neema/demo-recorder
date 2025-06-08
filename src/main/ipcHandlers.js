@@ -201,4 +201,8 @@ function stopAdvancedClickTracking() {
   mouseHistory = [];
 }
 
-module.exports = { registerHandlers };
+function isRecording() {
+  return recording;
+}
+
+module.exports = { registerHandlers, isRecording };
