@@ -3,6 +3,7 @@ const { ipcRenderer } = require('electron');
 let mediaRecorder;
 let recordedChunks = [];
 let selectedSourceId = null;
+let currentStream = null;
 
 async function loadSources() {
   const sources = await ipcRenderer.invoke('get-sources');
@@ -19,20 +20,50 @@ async function loadSources() {
 
 async function selectSource(sourceId) {
   selectedSourceId = sourceId;
-  const stream = await navigator.mediaDevices.getUserMedia({
-    audio: false,
+  const includeSystemAudio = document.getElementById('include-audio').checked;
+  const includeMic = document.getElementById('include-microphone').checked;
+
+  const screenConstraints = {
     video: {
       mandatory: {
         chromeMediaSource: 'desktop',
         chromeMediaSourceId: sourceId
       }
+    },
+    audio: includeSystemAudio
+      ? {
+          mandatory: {
+            chromeMediaSource: 'desktop',
+            chromeMediaSourceId: sourceId
+          }
+        }
+      : false
+  };
+
+  const screenStream = await navigator.mediaDevices.getUserMedia(screenConstraints);
+
+  const tracks = [
+    ...screenStream.getVideoTracks(),
+    ...(includeSystemAudio ? screenStream.getAudioTracks() : [])
+  ];
+
+  if (includeMic) {
+    try {
+      const micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      tracks.push(...micStream.getAudioTracks());
+    } catch (err) {
+      console.error('Error accessing microphone:', err);
     }
-  });
+  }
+
+  const stream = new MediaStream(tracks);
+  currentStream = stream;
+
   const video = document.getElementById('preview-video');
   video.srcObject = stream;
   video.play();
 
-  const options = { mimeType: 'video/webm; codecs=vp9' };
+  const options = { mimeType: 'video/webm; codecs=vp9,opus' };
   recordedChunks = [];
   mediaRecorder = new MediaRecorder(stream, options);
   mediaRecorder.ondataavailable = (e) => recordedChunks.push(e.data);
@@ -77,5 +108,11 @@ document.getElementById('refresh-sources').addEventListener('click', loadSources
 document.getElementById('start-recording').addEventListener('click', startRecording);
 document.getElementById('pause-recording').addEventListener('click', pauseRecording);
 document.getElementById('stop-recording').addEventListener('click', stopRecording);
+document.getElementById('include-audio').addEventListener('change', () => {
+  if (selectedSourceId) selectSource(selectedSourceId);
+});
+document.getElementById('include-microphone').addEventListener('change', () => {
+  if (selectedSourceId) selectSource(selectedSourceId);
+});
 
 loadSources();
