@@ -129,15 +129,26 @@ button {
 .preview-container {
   border: 1px solid #282828;
   border-radius: 6px;
-  height: 360px;
+  height: 280px;
+  width: 100%;
+  max-width: 700px; /* Increased from 500px for broader preview */
+  min-height: 280px; /* Ensure minimum height */
   overflow: hidden;
   background: #000000;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto; /* Center the container */
 }
 
 .preview-container video {
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  object-fit: contain; /* Show full video without cropping */
+  position: absolute;
+  top: 0;
+  left: 0;
 }
 
 .preview-placeholder {
@@ -145,8 +156,13 @@ button {
   align-items: center;
   justify-content: center;
   height: 100%;
+  width: 100%;
   color: #b3b3b3;
   font-size: 14px;
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
 }
 
 .status-indicator {
