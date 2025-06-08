@@ -30,5 +30,6 @@ The packaged installer will be available in the `dist/` directory.
 - Record in WebM format with optional audio
 - Preview the capture before recording
 - Pause and resume during recording
+- Choose whether to capture system audio and microphone
 
 Contributions are welcome!
