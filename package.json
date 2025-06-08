@@ -1,0 +1,56 @@
+{
+  "name": "demo-recorder",
+  "version": "1.0.0",
+  "description": "Electron app to record screen + mic and export developer demo videos",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "electron-builder",
+    "dist": "electron-builder --publish=never",
+    "pack": "electron-builder --dir"
+  },
+  "keywords": [
+    "screen-recorder",
+    "demo",
+    "developer-tools",
+    "video-recording",
+    "electron",
+    "desktop-app"
+  ],
+  "author": "Chahal Neema",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/chahal-neema/demo-recorder.git"
+  },
+  "homepage": "https://github.com/chahal-neema/demo-recorder#readme",
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^24.0.0"
+  },
+  "dependencies": {
+    "fluent-ffmpeg": "^2.1.2",
+    "node-screenshots": "^0.1.5"
+  },
+  "build": {
+    "appId": "com.chahalneema.demorecorder",
+    "productName": "Demo Recorder",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "node_modules/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}
