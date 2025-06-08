@@ -57,7 +57,7 @@ class StreamProcessor {
         this.targetZoomLevel = 1.0;
         this.recordingStartTime = Date.now(); // Track recording start time
         console.log('🔧 FORCED zoom reset: zoomLevel=', this.zoomLevel, 'targetZoomLevel=', this.targetZoomLevel);
-        console.log('🎬 Recording started at:', this.recordingStartTime, '- Grace period: 4 seconds');
+        console.log('🎬 Recording started at:', this.recordingStartTime, '- Grace period: 2 seconds');
         
         this.originalStream = originalStream;
         this.recordingBounds = recordingBounds;
@@ -157,7 +157,7 @@ class StreamProcessor {
     handleZoomTrigger() {
         const now = Date.now();
         const timeSinceRecordingStart = now - this.recordingStartTime;
-        const gracePeriod = 4000; // 4 seconds grace period
+        const gracePeriod = 2000; // 2 seconds grace period (reduced for faster response)
         let shouldZoom = false;
         
         console.log('🎯 handleZoomTrigger called');
@@ -227,7 +227,7 @@ class StreamProcessor {
     forceZoomOutIfNeeded() {
         const now = Date.now();
         const timeSinceRecordingStart = now - this.recordingStartTime;
-        const gracePeriod = 4000; // 4 seconds grace period
+        const gracePeriod = 2000; // 2 seconds grace period (reduced for faster response)
         
         // During grace period, always force 1x zoom
         if (timeSinceRecordingStart < gracePeriod) {
@@ -458,7 +458,7 @@ class StreamProcessor {
     onMouseClick() {
         const clickTime = Date.now();
         const timeSinceRecordingStart = clickTime - this.recordingStartTime;
-        const gracePeriod = 4000; // 4 seconds grace period
+        const gracePeriod = 2000; // 2 seconds grace period (reduced for faster response)
         
         console.log('🖱️ Click detected in StreamProcessor!');
         console.log('   Zoom enabled:', config.zoom.enabled);

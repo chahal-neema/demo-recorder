@@ -203,15 +203,15 @@ class ScreenTracker {
                 }
             }
             
-            // Fallback: Parse screen index from name or ID
+            // Fallback: Parse screen index from ID (more reliable than name)
             let screenIndex = 0;
-            if (this.selectedSource.name && this.selectedSource.name.includes('Screen ')) {
+            if (this.selectedSource.id.includes(':')) {
+                // Parse from "screen:0:0" format - use first number after 'screen:'
+                screenIndex = parseInt(this.selectedSource.id.split(':')[1]) || 0;
+            } else if (this.selectedSource.name && this.selectedSource.name.includes('Screen ')) {
                 // Extract screen number from "Screen 1", "Screen 2", etc.
                 const screenNumber = parseInt(this.selectedSource.name.split('Screen ')[1]) || 1;
                 screenIndex = screenNumber - 1; // Convert to 0-based index
-            } else if (this.selectedSource.id.includes(':')) {
-                // Parse from "screen:0:0" format - use first number after 'screen:'
-                screenIndex = parseInt(this.selectedSource.id.split(':')[1]) || 0;
             }
             
             console.log('🖥️ Parsed screen index:', screenIndex);
