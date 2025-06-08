@@ -197,6 +197,12 @@ async function startRecording() {
         return;
     }
 
+    logger.recording('Starting recording...');
+    logger.recording('Recording start analysis:');
+    logger.recording('   Zoom enabled:', config.zoom.enabled);
+    logger.recording('   Mouse enabled:', config.mouse.enabled);
+    logger.recording('   Needs processing:', config.zoom.enabled || config.mouse.enabled);
+
     // Ignore the click that triggered the start button
     mouseTracker.setIgnoreNextClick();
     
@@ -296,11 +302,68 @@ function setupIPCListeners() {
     });
 
     ipcRenderer.on('global-click', (event, clickData) => {
+        logger.mouse('Global click IPC received:', clickData);
         mouseTracker.handleGlobalClick(clickData);
     });
 }
 
 // --- Debug Functions ---
+window.debugConfig = function() {
+    logger.debug('=== Configuration Debug ===');
+    logger.debug('Current config object:', config);
+    
+    // Check UI state
+    const enableZoomCheck = document.getElementById('enable-zoom');
+    logger.debug('Enable zoom checkbox element:', !!enableZoomCheck);
+    logger.debug('Enable zoom checkbox checked:', enableZoomCheck ? enableZoomCheck.checked : 'N/A');
+    
+    // Check if UI and config are in sync
+    logger.debug('Config zoom enabled:', config.zoom.enabled);
+    logger.debug('UI checkbox matches config:', enableZoomCheck ? (enableZoomCheck.checked === config.zoom.enabled) : 'N/A');
+    
+    // Check StreamProcessor state
+    logger.debug('StreamProcessor exists:', !!streamProcessor);
+    if (streamProcessor) {
+        logger.debug('StreamProcessor zoom level:', streamProcessor.zoomLevel);
+        logger.debug('StreamProcessor target zoom:', streamProcessor.targetZoomLevel);
+    }
+    
+    return {
+        config: config,
+        uiState: enableZoomCheck ? enableZoomCheck.checked : null,
+        streamProcessor: streamProcessor ? {
+            zoomLevel: streamProcessor.zoomLevel,
+            targetZoomLevel: streamProcessor.targetZoomLevel
+        } : null
+    };
+};
+
+window.enableZoomForTesting = function() {
+    logger.debug('=== Manually Enabling Zoom for Testing ===');
+    
+    // Enable zoom in config
+    config.zoom.enabled = true;
+    logger.debug('Config zoom enabled set to:', config.zoom.enabled);
+    
+    // Update UI checkbox to match
+    const enableZoomCheck = document.getElementById('enable-zoom');
+    if (enableZoomCheck) {
+        enableZoomCheck.checked = true;
+        logger.debug('UI checkbox updated to checked');
+        
+        // Trigger change event to ensure UI sync
+        enableZoomCheck.dispatchEvent(new Event('change'));
+        logger.debug('Change event dispatched');
+    } else {
+        logger.debug('Could not find enable-zoom checkbox element');
+    }
+    
+    return {
+        configEnabled: config.zoom.enabled,
+        uiChecked: enableZoomCheck ? enableZoomCheck.checked : null
+    };
+};
+
 window.debugZoom = function() {
     logger.debug('Debug Zoom Function Called');
     logger.debug('   Config:', config.zoom);
@@ -349,6 +412,133 @@ window.debugStreamProcessor = () => {
     } else {
         logger.debug('No StreamProcessor available');
     }
+};
+
+window.debugRecordingBounds = async function() {
+    logger.debug('=== Recording Bounds Debug ===');
+    
+    if (!screenTracker.selectedSource) {
+        logger.debug('No source selected');
+        return { error: 'No source selected' };
+    }
+    
+    try {
+        const bounds = await screenTracker.getRecordingBounds();
+        logger.debug('Recording bounds:', bounds);
+        
+        // Test some sample click positions
+        const testClicks = [
+            { x: -1400, y: 400, desc: 'Screen 2 center-left' },
+            { x: -800, y: 600, desc: 'Screen 2 center-right' },
+            { x: 500, y: 500, desc: 'Primary screen center' }
+        ];
+        
+        const results = testClicks.map(click => {
+            const isInBounds = 
+                click.x >= bounds.x && 
+                click.x <= bounds.x + bounds.width &&
+                click.y >= bounds.y && 
+                click.y <= bounds.y + bounds.height;
+            
+            return {
+                position: `${click.x}, ${click.y}`,
+                description: click.desc,
+                inBounds: isInBounds
+            };
+        });
+        
+        logger.debug('Click position tests:', results);
+        
+        return {
+            selectedSource: screenTracker.selectedSource,
+            recordingBounds: bounds,
+            clickTests: results
+        };
+        
+    } catch (error) {
+        logger.debug('Error getting recording bounds:', error);
+        return { error: error.message };
+    }
+};
+
+window.debugGlobalClickDetection = function() {
+    logger.debug('=== Global Click Detection Debug ===');
+    
+    const mouseState = mouseTracker.getState();
+    logger.debug('MouseTracker state:', mouseState);
+    
+    if (streamProcessor) {
+        logger.debug('StreamProcessor recording bounds:', streamProcessor.recordingBounds);
+        logger.debug('StreamProcessor mouse position:', streamProcessor.mousePosition);
+    }
+    
+    // Test by simulating a global click
+    const testClick = {
+        x: 960, // Middle of 1920 width
+        y: 540, // Middle of 1080 height
+        timestamp: Date.now(),
+        source: 'debug-test'
+    };
+    
+    logger.debug('Simulating test global click:', testClick);
+    mouseTracker.handleGlobalClick(testClick);
+    
+    return {
+        mouseState,
+        streamProcessor: !!streamProcessor,
+        recordingBounds: streamProcessor ? streamProcessor.recordingBounds : null
+    };
+};
+
+window.debugMouseTracker = function() {
+    logger.debug('=== MouseTracker Debug ===');
+    return mouseTracker.getState();
+};
+
+window.testZoomCenter = function() {
+    if (!streamProcessor) {
+        logger.debug('No StreamProcessor available');
+        return;
+    }
+    
+    logger.debug('=== Zoom Center Test ===');
+    logger.debug('Current zoom level:', streamProcessor.zoomLevel);
+    logger.debug('Target zoom level:', streamProcessor.targetZoomLevel);
+    logger.debug('Zoom center:', streamProcessor.zoomCenter);
+    logger.debug('Zoom center target:', streamProcessor.zoomCenterTarget);
+    logger.debug('Mouse position:', streamProcessor.mousePosition);
+    
+    // Force zoom in and set center to mouse position
+    streamProcessor.targetZoomLevel = 2.0;
+    streamProcessor.startZoomTransition();
+    
+    if (streamProcessor.mousePosition.relativeX >= 0) {
+        streamProcessor.zoomCenterTarget.x = streamProcessor.mousePosition.relativeX;
+        streamProcessor.zoomCenterTarget.y = streamProcessor.mousePosition.relativeY;
+        logger.debug('Zoom center set to current mouse position');
+    } else {
+        // Set to center if no mouse position
+        streamProcessor.zoomCenterTarget.x = 0.5;
+        streamProcessor.zoomCenterTarget.y = 0.5;
+        logger.debug('Zoom center set to screen center (no mouse position)');
+    }
+};
+
+window.debugZoomTracking = function() {
+    if (!streamProcessor) {
+        logger.debug('No StreamProcessor available');
+        return;
+    }
+    
+    return {
+        zoomLevel: streamProcessor.zoomLevel,
+        targetZoomLevel: streamProcessor.targetZoomLevel,
+        zoomCenter: streamProcessor.zoomCenter,
+        zoomCenterTarget: streamProcessor.zoomCenterTarget,
+        mousePosition: streamProcessor.mousePosition,
+        isZoomedIn: streamProcessor.zoomLevel > 1.05,
+        transitionActive: streamProcessor.zoomTransition.active
+    };
 };
 
 // Make modules available globally for debugging

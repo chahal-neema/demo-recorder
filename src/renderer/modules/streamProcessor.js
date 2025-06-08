@@ -122,23 +122,35 @@ class StreamProcessor {
 
             this.lastMouseMove = { x: position.x, y: position.y, time: now };
 
+            // Update activity time only when there's significant movement (velocity-based)
             if (velocity > this.getVelocityThreshold()) {
                 this.lastActivityTime = now;
+            }
+            
+            // Always update zoom center when zoomed in, regardless of velocity
+            // This ensures the zoom follows the cursor smoothly
+            if (this.zoomLevel > 1.05 || this.targetZoomLevel > 1.05) {
                 this.zoomCenterTarget.x = Math.min(1, Math.max(0, position.relativeX));
                 this.zoomCenterTarget.y = Math.min(1, Math.max(0, position.relativeY));
+            } else {
+                // When not zoomed, only update center on significant movement
+                if (velocity > this.getVelocityThreshold()) {
+                    this.zoomCenterTarget.x = Math.min(1, Math.max(0, position.relativeX));
+                    this.zoomCenterTarget.y = Math.min(1, Math.max(0, position.relativeY));
+                }
             }
 
-                    // Only check zoom state every 500ms instead of every frame (60fps)
-        if (!this.lastZoomCheck || now - this.lastZoomCheck > 500) {
-            this.lastZoomCheck = now;
-            this.handleZoomTrigger();
-        }
-        
-        // Additional aggressive zoom-out check every 2 seconds
-        if (!this.lastForceCheck || now - this.lastForceCheck > 2000) {
-            this.lastForceCheck = now;
-            this.forceZoomOutIfNeeded();
-        }
+            // Only check zoom state every 500ms instead of every frame (60fps)
+            if (!this.lastZoomCheck || now - this.lastZoomCheck > 500) {
+                this.lastZoomCheck = now;
+                this.handleZoomTrigger();
+            }
+            
+            // Additional aggressive zoom-out check every 2 seconds
+            if (!this.lastForceCheck || now - this.lastForceCheck > 2000) {
+                this.lastForceCheck = now;
+                this.forceZoomOutIfNeeded();
+            }
         }
     }
 
@@ -261,9 +273,23 @@ class StreamProcessor {
     }
 
     updateZoomCenter() {
-        const lag = 0.15;
+        // Use more responsive lag when zoomed in to better track cursor
+        const isZoomedIn = this.zoomLevel > 1.05 || this.targetZoomLevel > 1.05;
+        const lag = isZoomedIn ? 0.25 : 0.15; // More responsive when zoomed
+        
+        const oldCenter = { x: this.zoomCenter.x, y: this.zoomCenter.y };
         this.zoomCenter.x += (this.zoomCenterTarget.x - this.zoomCenter.x) * lag;
         this.zoomCenter.y += (this.zoomCenterTarget.y - this.zoomCenter.y) * lag;
+        
+        // Log zoom center updates when zoomed in (occasionally to avoid spam)
+        if (isZoomedIn && Math.random() < 0.01) { // 1% chance to log
+            console.log('🎯 Zoom center update:', {
+                target: { x: this.zoomCenterTarget.x.toFixed(3), y: this.zoomCenterTarget.y.toFixed(3) },
+                current: { x: this.zoomCenter.x.toFixed(3), y: this.zoomCenter.y.toFixed(3) },
+                zoomLevel: this.zoomLevel.toFixed(2),
+                mousePos: { x: this.mousePosition.relativeX?.toFixed(3), y: this.mousePosition.relativeY?.toFixed(3) }
+            });
+        }
     }
 
     updateZoomLevel() {

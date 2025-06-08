@@ -182,14 +182,51 @@ class ScreenTracker {
             throw new Error('No source selected');
         }
 
+        console.log('🖥️ Getting recording bounds for source:', this.selectedSource);
         const displayInfo = await ipcRenderer.invoke('get-display-info');
+        console.log('🖥️ Display info received:', displayInfo);
         
         if (this.selectedSource.type === 'screen') {
-            const display = displayInfo.displays.find(d => 
-                d.id.toString() === this.selectedSource.id.split('-')[1]
-            ) || displayInfo.primary;
+            // First try to use display_id if available
+            if (this.selectedSource.display_id) {
+                console.log('🖥️ Using display_id from source:', this.selectedSource.display_id);
+                const display = displayInfo.displays.find(d => 
+                    d.id.toString() === this.selectedSource.display_id.toString()
+                );
+                
+                if (display) {
+                    console.log('🖥️ Found display by display_id:', display);
+                    console.log('🖥️ Recording bounds:', display.bounds);
+                    return display.bounds;
+                } else {
+                    console.log('⚠️ Display not found by display_id, trying screen index...');
+                }
+            }
+            
+            // Fallback: Parse screen index from name or ID
+            let screenIndex = 0;
+            if (this.selectedSource.name && this.selectedSource.name.includes('Screen ')) {
+                // Extract screen number from "Screen 1", "Screen 2", etc.
+                const screenNumber = parseInt(this.selectedSource.name.split('Screen ')[1]) || 1;
+                screenIndex = screenNumber - 1; // Convert to 0-based index
+            } else if (this.selectedSource.id.includes(':')) {
+                // Parse from "screen:0:0" format - use first number after 'screen:'
+                screenIndex = parseInt(this.selectedSource.id.split(':')[1]) || 0;
+            }
+            
+            console.log('🖥️ Parsed screen index:', screenIndex);
+            console.log('🖥️ Available displays:', displayInfo.displays.map((d, i) => ({ 
+                index: i, id: d.id, bounds: d.bounds, label: d.label 
+            })));
+            
+            // Use screen index to select display, with bounds check
+            const display = displayInfo.displays[screenIndex] || displayInfo.displays[0] || displayInfo.primary;
+            
+            console.log('🖥️ Selected display by index:', display);
+            console.log('🖥️ Recording bounds:', display.bounds);
             return display.bounds;
         } else {
+            console.log('🖥️ Window source - using primary display bounds');
             return displayInfo.primary.bounds;
         }
     }

@@ -5,6 +5,7 @@ let recording = false;
 let clickTrackingInterval = null;
 let lastClickTime = 0;
 let mainWindow = null;
+let mouseHistory = [];
 
 function registerHandlers(window) {
   mainWindow = window;
@@ -59,12 +60,12 @@ function registerHandlers(window) {
 
   ipcMain.on('recording-started', () => {
     recording = true;
-    startClickTracking();
+    startAdvancedClickTracking();
   });
 
   ipcMain.on('recording-stopped', () => {
     recording = false;
-    stopClickTracking();
+    stopAdvancedClickTracking();
   });
 
   // System-level mouse tracking for real zoom functionality
@@ -73,82 +74,131 @@ function registerHandlers(window) {
     return { x: point.x, y: point.y };
   });
 
+  // Get display information
   ipcMain.handle('get-display-info', () => {
     const displays = screen.getAllDisplays();
     const primaryDisplay = screen.getPrimaryDisplay();
     return {
-      displays: displays.map(d => ({
-        id: d.id,
-        bounds: d.bounds,
-        workArea: d.workArea,
-        scaleFactor: d.scaleFactor
-      })),
-      primary: {
-        id: primaryDisplay.id,
-        bounds: primaryDisplay.bounds,
-        workArea: primaryDisplay.workArea,
-        scaleFactor: primaryDisplay.scaleFactor
-      }
+      displays: displays,
+      primary: primaryDisplay
     };
+  });
+
+  // Handle manual click notification from renderer
+  ipcMain.handle('notify-click', (event, x, y) => {
+    const now = Date.now();
+    console.log('🖱️ Click notified from renderer at:', x, y, 'time:', now);
+    lastClickTime = now;
+    
+    // Forward click to renderer if needed
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('global-click', { x, y, timestamp: now });
+    }
   });
 }
 
-function startClickTracking() {
-  console.log('🖱️ Starting global click tracking...');
+function startAdvancedClickTracking() {
+  console.log('🖱️ Starting advanced global click tracking...');
   
-  // Track mouse button state to detect clicks
-  let lastMouseState = { x: 0, y: 0, buttons: 0 };
+  // Clear any existing tracking
+  if (clickTrackingInterval) {
+    clearInterval(clickTrackingInterval);
+  }
+  
+  mouseHistory = [];
   
   clickTrackingInterval = setInterval(() => {
     try {
-      // Get current mouse position and state
       const currentPos = screen.getCursorScreenPoint();
-      
-      // For Windows, we can track clicks by monitoring rapid position changes
-      // or use a simple click detection based on cursor position changes
       const now = Date.now();
-      const dx = Math.abs(currentPos.x - lastMouseState.x);
-      const dy = Math.abs(currentPos.y - lastMouseState.y);
       
-      // Detect potential click (small movement + time gap suggests a click)
-      if ((dx < 5 && dy < 5) && (now - lastClickTime > 100)) {
-        // This is a simplified click detection - in a real implementation
-        // you'd use platform-specific APIs for actual click detection
-        
-        // For now, we'll rely on the renderer process click detection
-        // but we can enhance this later with native click detection
+      // Add current position to history
+      mouseHistory.push({
+        x: currentPos.x,
+        y: currentPos.y,
+        timestamp: now
+      });
+      
+      // Keep only last 10 positions (about 160ms of history at 60fps)
+      if (mouseHistory.length > 10) {
+        mouseHistory.shift();
       }
       
-      lastMouseState = { x: currentPos.x, y: currentPos.y, buttons: 0 };
+      // Detect clicks using improved analysis
+      if (mouseHistory.length >= 5) {
+        const clickDetected = analyzeForClicks();
+        if (clickDetected) {
+          console.log('🖱️ GLOBAL CLICK DETECTED at:', currentPos.x, currentPos.y);
+          lastClickTime = now;
+          
+          // Notify renderer immediately
+          if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('global-click', { 
+              x: currentPos.x, 
+              y: currentPos.y, 
+              timestamp: now,
+              source: 'advanced-detection'
+            });
+          }
+        }
+      }
       
     } catch (error) {
-      console.error('Error in click tracking:', error);
+      console.error('Error in advanced click tracking:', error);
     }
   }, 16); // ~60fps
 }
 
-function stopClickTracking() {
-  console.log('🖱️ Stopping global click tracking...');
+function analyzeForClicks() {
+  if (mouseHistory.length < 5) return false;
+  
+  const recent = mouseHistory.slice(-5); // Last 5 positions
+  const now = Date.now();
+  
+  // Calculate movement patterns
+  let totalMovement = 0;
+  let maxMovement = 0;
+  let movements = [];
+  
+  for (let i = 1; i < recent.length; i++) {
+    const dx = recent[i].x - recent[i-1].x;
+    const dy = recent[i].y - recent[i-1].y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    movements.push(distance);
+    totalMovement += distance;
+    maxMovement = Math.max(maxMovement, distance);
+  }
+  
+  const avgMovement = totalMovement / movements.length;
+  const timeSpan = recent[recent.length - 1].timestamp - recent[0].timestamp;
+  
+  // Click detection criteria:
+  // 1. Very small average movement (mouse is stable)
+  // 2. No sudden large movements (not dragging)
+  // 3. Recent enough to be meaningful
+  // 4. Not too frequent (debounce)
+  
+  const isStable = avgMovement < 1.5; // Very stable cursor
+  const noDragging = maxMovement < 5; // No sudden jumps
+  const goodTiming = timeSpan > 30 && timeSpan < 200; // Good click duration
+  const notTooFrequent = now - lastClickTime > 200; // Debounce 200ms
+  
+  // Enhanced detection: Look for brief pause followed by small movement
+  const hasClickPattern = movements.length >= 3 && 
+                         movements[0] < 1 && 
+                         movements[1] < 1 && 
+                         movements[2] < 2;
+  
+  return isStable && noDragging && goodTiming && notTooFrequent && hasClickPattern;
+}
+
+function stopAdvancedClickTracking() {
+  console.log('🖱️ Stopping advanced global click tracking...');
   if (clickTrackingInterval) {
     clearInterval(clickTrackingInterval);
     clickTrackingInterval = null;
   }
+  mouseHistory = [];
 }
 
-// Handle manual click notification from renderer
-ipcMain.handle('notify-click', (event, x, y) => {
-  const now = Date.now();
-  console.log('🖱️ Click notified from renderer at:', x, y, 'time:', now);
-  lastClickTime = now;
-  
-  // Forward click to renderer if needed
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('global-click', { x, y, timestamp: now });
-  }
-});
-
-function isRecording() {
-  return recording;
-}
-
-module.exports = { registerHandlers, isRecording };
+module.exports = { registerHandlers };

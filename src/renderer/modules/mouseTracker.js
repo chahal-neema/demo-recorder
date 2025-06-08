@@ -152,11 +152,46 @@ class MouseTracker {
 
     // Handle global click events from main process
     handleGlobalClick(clickData) {
+        const now = Date.now();
         console.log('🌍 Global click received:', clickData);
         
+        // Check if this click is on the recorded screen area
         if (this.streamProcessor && this.isTracking) {
-            console.log('   Forwarding global click to StreamProcessor...');
-            this.streamProcessor.onMouseClick();
+            const recordingBounds = this.streamProcessor.recordingBounds;
+            
+            if (recordingBounds) {
+                const isInRecordingArea = 
+                    clickData.x >= recordingBounds.x &&
+                    clickData.x <= recordingBounds.x + recordingBounds.width &&
+                    clickData.y >= recordingBounds.y &&
+                    clickData.y <= recordingBounds.y + recordingBounds.height;
+                
+                console.log('   Recording bounds:', recordingBounds);
+                console.log('   Click position:', clickData.x, clickData.y);
+                console.log('   Is in recording area:', isInRecordingArea);
+                
+                if (isInRecordingArea) {
+                    console.log('✅ Global click is in recording area - triggering zoom!');
+                    
+                    // Calculate relative position for the click
+                    const relativePos = {
+                        x: clickData.x,
+                        y: clickData.y,
+                        relativeX: (clickData.x - recordingBounds.x) / recordingBounds.width,
+                        relativeY: (clickData.y - recordingBounds.y) / recordingBounds.height
+                    };
+                    
+                    // Update mouse position first, then trigger click
+                    this.streamProcessor.updateMousePosition(relativePos);
+                    this.streamProcessor.onMouseClick();
+                } else {
+                    console.log('❌ Global click outside recording area - ignoring');
+                }
+            } else {
+                console.log('⚠️ No recording bounds available');
+            }
+        } else {
+            console.log('❌ No StreamProcessor or not tracking');
         }
     }
 
