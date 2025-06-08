@@ -22,6 +22,7 @@ let currentSourceType = 'screen';
 // Stream processing state
 let streamProcessor = null;
 let mouseTrackingInterval = null;
+let ignoreNextClick = false;
 
 let dom;
 
@@ -68,6 +69,7 @@ function initializeUI() {
     // Initialize labels for sliders
     if(dom.zoomLevelSlider) UI.updateZoomLevelLabel(dom.zoomLevelSlider.value);
     if(dom.zoomSpeedSlider) UI.updateZoomSpeedLabel(dom.zoomSpeedSlider.value);
+    if(dom.zoomSensitivitySlider) UI.updateZoomSensitivityLabel(dom.zoomSensitivitySlider.value);
     if(dom.highlightSizeSlider) UI.updateHighlightSizeLabel(dom.highlightSizeSlider.value);
     if(dom.highlightColorPicker) UI.updateColorLabel(dom.highlightColorPicker.value);
     console.log('✅ UI initialized');
@@ -151,6 +153,9 @@ async function startRecording() {
         alert('Please select a recording source first!');
         return;
     }
+
+    // Ignore the click that triggered the start button
+    ignoreNextClick = true;
     
     isRecording = true;
     isPaused = false;
@@ -349,6 +354,10 @@ ipcRenderer.on('recording-saved', (event, path) => {
 
 // Add click tracking for the document
 document.addEventListener('click', () => {
+    if (ignoreNextClick) {
+        ignoreNextClick = false;
+        return;
+    }
     if (streamProcessor) {
         streamProcessor.onMouseClick();
     }

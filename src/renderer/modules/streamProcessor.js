@@ -8,11 +8,14 @@ class StreamProcessor {
         this.originalStream = null;
         this.animationFrameId = null;
         this.mousePosition = { x: 0, y: 0, relativeX: -1, relativeY: -1 };
+        this.lastMouseMove = { x: 0, y: 0, time: 0 };
+        this.lastActivityTime = 0;
         this.recordingBounds = null;
         this.lastClickTime = 0;
         this.zoomLevel = 1.0;
         this.targetZoomLevel = 1.0;
         this.zoomCenter = { x: 0.5, y: 0.5 };
+        this.zoomCenterTarget = { x: 0.5, y: 0.5 };
         
         // Zoom animation properties
         this.zoomTransition = {
@@ -61,15 +64,33 @@ class StreamProcessor {
         return this.processedStream;
     }
 
+    getVelocityThreshold() {
+        // Higher sensitivity -> lower threshold
+        const base = 0.7; // px/ms
+        return base * (11 - config.zoom.sensitivity) / 10;
+    }
+
     updateMousePosition(position) {
+        const now = Date.now();
         this.mousePosition = position;
-        
-        // Update zoom center based on mouse position
-        if (config.zoom.enabled && position.relativeX >= 0 && position.relativeY >= 0) {
-            this.zoomCenter.x = position.relativeX;
-            this.zoomCenter.y = position.relativeY;
-            
-            // Trigger zoom based on activity
+
+        if (!config.zoom.enabled) return;
+
+        if (position.relativeX >= 0 && position.relativeY >= 0) {
+            const dx = position.x - this.lastMouseMove.x;
+            const dy = position.y - this.lastMouseMove.y;
+            const dt = now - this.lastMouseMove.time;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            const velocity = dt > 0 ? distance / dt : 0;
+
+            this.lastMouseMove = { x: position.x, y: position.y, time: now };
+
+            if (velocity > this.getVelocityThreshold()) {
+                this.lastActivityTime = now;
+                this.zoomCenterTarget.x = Math.min(1, Math.max(0, position.relativeX));
+                this.zoomCenterTarget.y = Math.min(1, Math.max(0, position.relativeY));
+            }
+
             this.handleZoomTrigger();
         }
     }
@@ -77,24 +98,22 @@ class StreamProcessor {
     handleZoomTrigger() {
         const now = Date.now();
         let shouldZoom = false;
-        
+
         switch (config.zoom.trigger) {
             case 'mouse':
-                // Zoom on mouse movement (you'd track velocity here)
-                shouldZoom = true;
+                shouldZoom = now - this.lastActivityTime < 3000;
                 break;
             case 'click':
-                // Zoom on recent clicks
                 shouldZoom = now - this.lastClickTime < 2000;
                 break;
             case 'both':
-                shouldZoom = true;
+                shouldZoom = (now - this.lastActivityTime < 3000) ||
+                              (now - this.lastClickTime < 2000);
                 break;
             case 'keyboard':
-                // Would need keyboard activity tracking
                 break;
         }
-        
+
         this.targetZoomLevel = shouldZoom ? config.zoom.level : 1.0;
         
         // Start zoom transition if level changed
@@ -111,6 +130,12 @@ class StreamProcessor {
             startTime: Date.now(),
             duration: (6 - config.zoom.speed) * 100 // Convert speed to duration
         };
+    }
+
+    updateZoomCenter() {
+        const lag = 0.15;
+        this.zoomCenter.x += (this.zoomCenterTarget.x - this.zoomCenter.x) * lag;
+        this.zoomCenter.y += (this.zoomCenterTarget.y - this.zoomCenter.y) * lag;
     }
 
     updateZoomLevel() {
@@ -135,6 +160,7 @@ class StreamProcessor {
     startProcessing() {
         const processFrame = () => {
             this.updateZoomLevel();
+            this.updateZoomCenter();
             this.renderFrame();
             this.animationFrameId = requestAnimationFrame(processFrame);
         };
@@ -174,12 +200,20 @@ class StreamProcessor {
     renderMouseEffects() {
         if (this.mousePosition.relativeX < 0) return;
         
-        const x = this.mousePosition.relativeX * this.canvas.width;
-        const y = this.mousePosition.relativeY * this.canvas.height;
-        
-        // Adjust position for zoom
-        const adjustedX = (x - (this.zoomCenter.x * this.canvas.width)) * this.zoomLevel + (this.canvas.width / 2);
-        const adjustedY = (y - (this.zoomCenter.y * this.canvas.height)) * this.zoomLevel + (this.canvas.height / 2);
+        const { width, height } = this.canvas;
+        const x = this.mousePosition.relativeX * width;
+        const y = this.mousePosition.relativeY * height;
+
+        const zoomWidth = width / this.zoomLevel;
+        const zoomHeight = height / this.zoomLevel;
+        const sourceX = (this.zoomCenter.x * width) - (zoomWidth / 2);
+        const sourceY = (this.zoomCenter.y * height) - (zoomHeight / 2);
+        const clampedX = Math.max(0, Math.min(width - zoomWidth, sourceX));
+        const clampedY = Math.max(0, Math.min(height - zoomHeight, sourceY));
+
+        // Adjust position for zoom and clamping
+        const adjustedX = (x - clampedX) * (width / zoomWidth);
+        const adjustedY = (y - clampedY) * (height / zoomHeight);
         
         if (adjustedX < 0 || adjustedX > this.canvas.width || adjustedY < 0 || adjustedY > this.canvas.height) {
             return; // Mouse is outside zoomed area
@@ -245,8 +279,10 @@ class StreamProcessor {
 
     onMouseClick() {
         this.lastClickTime = Date.now();
-        
-        // Trigger zoom on click if configured
+        this.lastActivityTime = this.lastClickTime;
+        this.zoomCenterTarget.x = this.mousePosition.relativeX;
+        this.zoomCenterTarget.y = this.mousePosition.relativeY;
+
         if (config.zoom.enabled && (config.zoom.trigger === 'click' || config.zoom.trigger === 'both')) {
             this.handleZoomTrigger();
         }
