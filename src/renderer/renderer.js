@@ -1,301 +1,234 @@
 const { ipcRenderer } = require('electron');
+const { config } = require('./modules/config.js');
+const UI = require('./modules/ui.js');
+const Preview = require('./modules/preview.js');
+const SourceManager = require('./modules/sources.js');
 
+console.log('✅ Modules imported successfully');
+console.log('✅ Config:', config);
+console.log('✅ SourceManager:', SourceManager);
+
+// --- State Management ---
+let isRecording = false;
+let isPaused = false;
 let mediaRecorder;
 let recordedChunks = [];
-let selectedSourceId = null;
-let currentStream = null;
-let selectedSourceType = 'screen';
+let timerInterval;
+let seconds = 0;
+let selectedSource = null;
+let currentSourceType = 'screen';
 
-const RecordingState = {
-  IDLE: 'idle',
-  RECORDING: 'recording',
-  PAUSED: 'paused'
-};
+let dom;
 
-let recordingState = RecordingState.IDLE;
-let timerInterval = null;
-let elapsedSeconds = 0;
-const config = {
-  zoom: {
-    enabled: false,
-    level: 1.5,
-    speed: 3,
-    trigger: 'click',
-    sensitivity: 5
-  },
-  mouse: {
-    enabled: true,
-    highlight: true,
-    clickEffects: false,
-    highlightSize: 3,
-    highlightColor: '#1db954',
-    clickAnimation: 'ripple'
-  }
-};
+// --- Initialization ---
+document.addEventListener('DOMContentLoaded', () => {
+    console.log('✅ DOM loaded, initializing...');
+    dom = UI.cacheDOMElements();
+    console.log('✅ DOM elements cached:', dom);
+    
+    initializeUI();
+    loadSources();
 
-function formatTime(seconds) {
-  const mins = Math.floor(seconds / 60)
-    .toString()
-    .padStart(2, '0');
-  const secs = Math.floor(seconds % 60)
-    .toString()
-    .padStart(2, '0');
-  return `${mins}:${secs}`;
+    const handlers = {
+        onSourceTypeChange: (type) => {
+            console.log('🔄 Source type changed to:', type);
+            currentSourceType = type;
+            loadSources();
+        },
+        onRefreshSources: () => {
+            console.log('🔄 Refreshing sources...');
+            loadSources();
+        },
+        onStartRecording: startRecording,
+        onPauseRecording: pauseRecording,
+        onStopRecording: stopRecording,
+    };
+    
+    console.log('🎯 Setting up event listeners...');
+    UI.setupEventListeners(handlers);
+    console.log('✅ Event listeners setup complete');
+});
+
+function initializeUI() {
+    console.log('🎨 Initializing UI...');
+    UI.updateButtonStates(isRecording, isPaused);
+    UI.updateStatus('Ready', '#b3b3b3');
+    UI.updateTimer(0);
+    
+    // Ensure proper initial preview state
+    dom.previewVideo.style.display = 'none';
+    dom.previewPlaceholder.style.display = 'flex';
+    dom.startBtn.disabled = true;
+    
+    // Initialize labels for sliders
+    if(dom.zoomLevelSlider) UI.updateZoomLevelLabel(dom.zoomLevelSlider.value);
+    if(dom.zoomSpeedSlider) UI.updateZoomSpeedLabel(dom.zoomSpeedSlider.value);
+    if(dom.highlightSizeSlider) UI.updateHighlightSizeLabel(dom.highlightSizeSlider.value);
+    if(dom.highlightColorPicker) UI.updateColorLabel(dom.highlightColorPicker.value);
+    console.log('✅ UI initialized');
 }
 
-function updateTimer() {
-  const timer = document.getElementById('recording-timer');
-  timer.textContent = formatTime(elapsedSeconds);
-}
 
-function updateUI() {
-  const startBtn = document.getElementById('start-recording');
-  const pauseBtn = document.getElementById('pause-recording');
-  const stopBtn = document.getElementById('stop-recording');
-  const statusText = document.getElementById('status-text');
-  const indicator = document.getElementById('status-indicator');
-
-  switch (recordingState) {
-    case RecordingState.RECORDING:
-      startBtn.disabled = true;
-      pauseBtn.disabled = false;
-      pauseBtn.textContent = '⏸️ Pause';
-      stopBtn.disabled = false;
-      statusText.textContent = 'Recording';
-      indicator.style.background = '#fa3c4c';
-      updateTimer();
-      break;
-    case RecordingState.PAUSED:
-      startBtn.disabled = true;
-      pauseBtn.disabled = false;
-      pauseBtn.textContent = '▶️ Resume';
-      stopBtn.disabled = false;
-      statusText.textContent = 'Paused';
-      indicator.style.background = '#ffa500';
-      updateTimer();
-      break;
-    default:
-      startBtn.disabled = !mediaRecorder;
-      pauseBtn.disabled = true;
-      pauseBtn.textContent = '⏸️ Pause';
-      stopBtn.disabled = true;
-      statusText.textContent = 'Ready';
-      indicator.style.background = '#b3b3b3';
-      elapsedSeconds = 0;
-      updateTimer();
-  }
-}
-
+// --- Source Handling ---
 async function loadSources() {
-  const sources = await ipcRenderer.invoke('get-sources', selectedSourceType);
-  const grid = document.getElementById('source-grid');
-  grid.innerHTML = '';
-  sources.forEach((source) => {
-    const btn = document.createElement('button');
-    btn.classList.add('source-item');
-    btn.innerHTML = `<img src="${source.thumbnail.toDataURL()}" />${source.name}`;
-    btn.addEventListener('click', () => selectSource(source.id));
-    grid.appendChild(btn);
-  });
-}
-
-async function selectSource(sourceId) {
-  selectedSourceId = sourceId;
-  const includeSystemAudio = document.getElementById('include-audio').checked;
-  const includeMic = document.getElementById('include-microphone').checked;
-
-  const screenConstraints = {
-    video: {
-      mandatory: {
-        chromeMediaSource: 'desktop',
-        chromeMediaSourceId: sourceId
-      }
-    },
-    audio: includeSystemAudio
-      ? {
-          mandatory: {
-            chromeMediaSource: 'desktop',
-            chromeMediaSourceId: sourceId
-          }
-        }
-      : false
-  };
-
-  const screenStream = await navigator.mediaDevices.getUserMedia(screenConstraints);
-
-  const tracks = [
-    ...screenStream.getVideoTracks(),
-    ...(includeSystemAudio ? screenStream.getAudioTracks() : [])
-  ];
-
-  if (includeMic) {
+    console.log('📺 Loading sources for type:', currentSourceType);
     try {
-      const micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      tracks.push(...micStream.getAudioTracks());
-    } catch (err) {
-      console.error('Error accessing microphone:', err);
+        // Clear previous sources and reset preview
+        dom.sourceGrid.innerHTML = '';
+        dom.previewVideo.style.display = 'none';
+        dom.previewPlaceholder.style.display = 'flex';
+        dom.startBtn.disabled = true;
+        selectedSource = null;
+        Preview.stopPreview();
+
+        console.log('🔄 Calling getSources...');
+        const sources = await SourceManager.getSources(currentSourceType);
+        console.log('📋 Sources received:', sources.length, 'sources');
+        console.log('📋 Sources:', sources);
+        
+        SourceManager.renderSources(sources, dom.sourceGrid, selectSource);
+        console.log('✅ Sources rendered');
+    } catch (error) {
+        console.error('❌ Error loading sources:', error);
     }
-  }
-
-  const stream = new MediaStream(tracks);
-  currentStream = stream;
-
-  const video = document.getElementById('preview-video');
-  video.srcObject = stream;
-  video.play();
-
-  const options = { mimeType: 'video/webm; codecs=vp9,opus' };
-  recordedChunks = [];
-  mediaRecorder = new MediaRecorder(stream, options);
-  mediaRecorder.ondataavailable = (e) => recordedChunks.push(e.data);
-  mediaRecorder.onstop = handleStop;
-
-  updatePreviewStatus();
-  updateUI();
 }
 
-function startRecording() {
-  if (!mediaRecorder || recordingState !== RecordingState.IDLE) return;
-  console.log('Recording Configuration:', config);
-  mediaRecorder.start();
-  ipcRenderer.send('recording-started');
-  recordingState = RecordingState.RECORDING;
-  elapsedSeconds = 0;
-  timerInterval = setInterval(() => {
-    if (recordingState === RecordingState.RECORDING) {
-      elapsedSeconds += 1;
-      updateTimer();
+async function selectSource(source) {
+    console.log('🎯 Source selected:', source);
+    selectedSource = source;
+    dom.startBtn.disabled = false;
+    dom.previewPlaceholder.style.display = 'none';
+    dom.previewVideo.style.display = 'block';
+
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: {
+                mandatory: {
+                    chromeMediaSource: 'desktop',
+                    chromeMediaSourceId: source.id,
+                },
+            },
+        });
+        
+        console.log('📹 Stream obtained:', stream);
+        console.log('📹 Video tracks:', stream.getVideoTracks());
+        const videoTrack = stream.getVideoTracks()[0];
+        if (videoTrack) {
+            const settings = videoTrack.getSettings();
+            console.log('📹 Video track settings:', settings);
+            console.log('📹 Resolution:', settings.width + 'x' + settings.height);
+            console.log('📹 Aspect ratio:', (settings.width / settings.height).toFixed(2));
+        }
+        
+        dom.previewVideo.srcObject = stream;
+        
+        // Add debug logging when video loads
+        dom.previewVideo.addEventListener('loadedmetadata', () => {
+            console.log('📺 Video loaded - dimensions:', dom.previewVideo.videoWidth + 'x' + dom.previewVideo.videoHeight);
+            console.log('📺 Video aspect ratio:', (dom.previewVideo.videoWidth / dom.previewVideo.videoHeight).toFixed(2));
+            console.log('📺 Container dimensions:', dom.previewContainer.offsetWidth + 'x' + dom.previewContainer.offsetHeight);
+            console.log('📺 Container aspect ratio:', (dom.previewContainer.offsetWidth / dom.previewContainer.offsetHeight).toFixed(2));
+        });
+        
+        // Always re-initialize the preview on source selection
+        await Preview.initializePreview(dom, selectedSource);
+
+    } catch (e) {
+        console.error('❌ Error selecting source:', e);
     }
-  }, 1000);
-  updateUI();
+}
+
+
+// --- Recording Lifecycle ---
+function startRecording() {
+    if (!selectedSource) {
+        alert('Please select a recording source first!');
+        return;
+    }
+    isRecording = true;
+    isPaused = false;
+    UI.updateButtonStates(isRecording, isPaused);
+    UI.updateStatus('Recording', '#e22134');
+    
+    recordedChunks = [];
+    const stream = dom.previewVideo.srcObject;
+    const mimeType = 'video/webm; codecs=vp9';
+    if (!MediaRecorder.isTypeSupported(mimeType)) {
+        console.error(`${mimeType} is not supported`);
+        alert(`Error: The required video codec (${mimeType}) is not supported on your system.`);
+        isRecording = false;
+        UI.updateButtonStates(isRecording, isPaused);
+        UI.updateStatus('Error', 'red');
+        return;
+    }
+
+    mediaRecorder = new MediaRecorder(stream, { mimeType });
+    mediaRecorder.ondataavailable = e => recordedChunks.push(e.data);
+    mediaRecorder.onstop = handleStop;
+    mediaRecorder.start();
+
+    startTimer();
 }
 
 function pauseRecording() {
-  if (!mediaRecorder) return;
-  if (recordingState === RecordingState.RECORDING) {
-    mediaRecorder.pause();
-    recordingState = RecordingState.PAUSED;
-  } else if (recordingState === RecordingState.PAUSED) {
-    mediaRecorder.resume();
-    recordingState = RecordingState.RECORDING;
-  }
-  updateUI();
+    if (!isRecording) return;
+    isPaused = !isPaused;
+    if (isPaused) {
+        mediaRecorder.pause();
+        clearInterval(timerInterval);
+        UI.updateStatus('Paused', '#ffa500');
+    } else {
+        mediaRecorder.resume();
+        startTimer();
+        UI.updateStatus('Recording', '#e22134');
+    }
+    dom.pauseBtn.textContent = isPaused ? '▶️ Resume' : '⏸️ Pause';
 }
 
 function stopRecording() {
-  if (!mediaRecorder || recordingState === RecordingState.IDLE) return;
-  mediaRecorder.stop();
-  ipcRenderer.send('recording-stopped');
-  clearInterval(timerInterval);
-  recordingState = RecordingState.IDLE;
-  document.getElementById('status-text').textContent = 'Processing...';
-  updateUI();
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+    }
 }
 
 async function handleStop() {
-  const blob = new Blob(recordedChunks, { type: 'video/webm' });
-  const buffer = Buffer.from(await blob.arrayBuffer());
-  await ipcRenderer.invoke('save-recording', buffer, `Recording-${Date.now()}.webm`);
-  document.getElementById('status-text').textContent = 'Ready';
-  updateUI();
+    isRecording = false;
+    isPaused = false;
+    clearInterval(timerInterval);
+    seconds = 0;
+    
+    UI.updateButtonStates(isRecording, isPaused);
+    UI.updateStatus('Ready', '#b3b3b3');
+    UI.updateTimer(0);
+    dom.pauseBtn.textContent = '⏸️ Pause';
+
+    Preview.stopPreview();
+
+    const blob = new Blob(recordedChunks, { type: 'video/webm' });
+    if (blob.size > 0) {
+        const buffer = Buffer.from(await blob.arrayBuffer());
+        ipcRenderer.invoke('save-recording', buffer);
+    }
+    
+    recordedChunks = [];
 }
 
-function updatePreviewStatus() {
-  const preview = document.getElementById('zoom-preview');
-  if (!selectedSourceId) {
-    preview.classList.remove('active');
-    return;
-  }
-  const zoomText = config.zoom.enabled ? `Zoom: ${config.zoom.level}x` : 'Zoom: OFF';
-  const mouseText = config.mouse.enabled ? 'Mouse Tracking: ON' : 'Mouse Tracking: OFF';
-  preview.textContent = `${zoomText} | ${mouseText}`;
-  preview.classList.add('active');
+
+// --- Timer ---
+function startTimer() {
+    clearInterval(timerInterval);
+    timerInterval = setInterval(() => {
+        seconds++;
+        UI.updateTimer(seconds);
+    }, 1000);
 }
 
-function initializeZoomMouseSettings() {
-  const enableZoom = document.getElementById('enable-zoom');
-  const zoomSettings = document.getElementById('zoom-settings');
-  const enableMouse = document.getElementById('enable-mouse-tracking');
-  const mouseSettings = document.getElementById('mouse-settings');
-
-  enableZoom.addEventListener('change', function () {
-    config.zoom.enabled = this.checked;
-    zoomSettings.classList.toggle('disabled', !this.checked);
-    updatePreviewStatus();
-  });
-
-  enableMouse.addEventListener('change', function () {
-    config.mouse.enabled = this.checked;
-    mouseSettings.classList.toggle('disabled', !this.checked);
-    updatePreviewStatus();
-  });
-
-  document.getElementById('zoom-level').addEventListener('input', function () {
-    config.zoom.level = parseFloat(this.value);
-    document.getElementById('zoom-level-value').textContent = `${this.value}x`;
-    updatePreviewStatus();
-  });
-
-  document.getElementById('zoom-speed').addEventListener('input', function () {
-    config.zoom.speed = parseInt(this.value, 10);
-  });
-
-  document.getElementById('zoom-trigger').addEventListener('change', function () {
-    config.zoom.trigger = this.value;
-  });
-
-  document.getElementById('zoom-sensitivity').addEventListener('input', function () {
-    config.zoom.sensitivity = parseInt(this.value, 10);
-  });
-
-  document.getElementById('mouse-highlight').addEventListener('change', function () {
-    config.mouse.highlight = this.checked;
-  });
-
-  document.getElementById('click-effects').addEventListener('change', function () {
-    config.mouse.clickEffects = this.checked;
-  });
-
-  document.getElementById('highlight-size').addEventListener('input', function () {
-    config.mouse.highlightSize = parseInt(this.value, 10);
-  });
-
-  document.getElementById('highlight-color').addEventListener('change', function () {
-    config.mouse.highlightColor = this.value;
-  });
-
-  document.getElementById('click-animation').addEventListener('change', function () {
-    config.mouse.clickAnimation = this.value;
-  });
-}
-
-document.getElementById('refresh-sources').addEventListener('click', loadSources);
-document.getElementById('start-recording').addEventListener('click', startRecording);
-document.getElementById('pause-recording').addEventListener('click', pauseRecording);
-document.getElementById('stop-recording').addEventListener('click', stopRecording);
-document.getElementById('include-audio').addEventListener('change', () => {
-  if (selectedSourceId) selectSource(selectedSourceId);
+// --- IPC Listeners ---
+ipcRenderer.on('recording-saved', (event, path) => {
+    if (path) {
+        alert(`Recording saved to ${path}`);
+    } else {
+        console.log('Save was cancelled.');
+    }
 });
-document.getElementById('include-microphone').addEventListener('change', () => {
-  if (selectedSourceId) selectSource(selectedSourceId);
-});
-
-document.querySelectorAll('.source-type-btn').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    document
-      .querySelectorAll('.source-type-btn')
-      .forEach((b) => b.classList.remove('active'));
-    btn.classList.add('active');
-    selectedSourceType = btn.getAttribute('data-type');
-    loadSources();
-  });
-});
-
-ipcRenderer.on('menu-start-recording', startRecording);
-ipcRenderer.on('menu-stop-recording', stopRecording);
-ipcRenderer.on('menu-pause-recording', pauseRecording);
-
-loadSources();
-initializeZoomMouseSettings();
-updatePreviewStatus();
-updateUI();
