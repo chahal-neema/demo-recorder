@@ -144,6 +144,11 @@ async function selectSource(sourceId) {
   video.srcObject = stream;
   video.play();
 
+  // Initialize preview effects when video starts playing
+  video.addEventListener('loadedmetadata', () => {
+    initializePreviewEffects();
+  });
+
   const options = { mimeType: 'video/webm; codecs=vp9,opus' };
   recordedChunks = [];
   mediaRecorder = new MediaRecorder(stream, options);
@@ -225,6 +230,174 @@ function updateColorLabel(color) {
   document.querySelector('.color-label').textContent = colorMap[color] || 'Custom';
 }
 
+// Preview Effects System
+let previewCanvas = null;
+let previewCtx = null;
+let mousePosition = { x: 0, y: 0 };
+let lastClickTime = 0;
+let animationFrameId = null;
+
+function initializePreviewEffects() {
+  const previewContainer = document.querySelector('.preview-container');
+  const video = document.getElementById('preview-video');
+  
+  // Create overlay canvas for effects
+  if (!previewCanvas) {
+    previewCanvas = document.createElement('canvas');
+    previewCanvas.style.position = 'absolute';
+    previewCanvas.style.top = '0';
+    previewCanvas.style.left = '0';
+    previewCanvas.style.pointerEvents = 'none';
+    previewCanvas.style.zIndex = '10';
+    previewContainer.appendChild(previewCanvas);
+    previewCtx = previewCanvas.getContext('2d');
+  }
+  
+  // Set canvas size to match video
+  function resizeCanvas() {
+    const rect = video.getBoundingClientRect();
+    previewCanvas.width = video.videoWidth || rect.width;
+    previewCanvas.height = video.videoHeight || rect.height;
+    previewCanvas.style.width = rect.width + 'px';
+    previewCanvas.style.height = rect.height + 'px';
+  }
+  
+  // Resize canvas when video dimensions change
+  video.addEventListener('resize', resizeCanvas);
+  resizeCanvas();
+  
+  // Track mouse movement over preview
+  previewContainer.addEventListener('mousemove', (e) => {
+    const rect = previewCanvas.getBoundingClientRect();
+    mousePosition.x = (e.clientX - rect.left) * (previewCanvas.width / rect.width);
+    mousePosition.y = (e.clientY - rect.top) * (previewCanvas.height / rect.height);
+  });
+  
+  // Track mouse clicks for click effects
+  previewContainer.addEventListener('click', (e) => {
+    lastClickTime = Date.now();
+  });
+  
+  // Start rendering loop
+  if (animationFrameId) {
+    cancelAnimationFrame(animationFrameId);
+  }
+  renderPreviewEffects();
+}
+
+function renderPreviewEffects() {
+  if (!previewCtx || !previewCanvas) return;
+  
+  // Clear canvas
+  previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+  
+  // Render mouse effects if enabled
+  if (config.mouse.enabled) {
+    renderMouseEffects();
+  }
+  
+  // Render zoom indicators if enabled
+  if (config.zoom.enabled) {
+    renderZoomIndicators();
+  }
+  
+  // Continue animation loop
+  animationFrameId = requestAnimationFrame(renderPreviewEffects);
+}
+
+function renderMouseEffects() {
+  if (!config.mouse.highlight) return;
+  
+  const size = config.mouse.highlightSize * 10; // Scale up for visibility
+  const color = config.mouse.highlightColor;
+  
+  // Draw mouse highlight
+  previewCtx.beginPath();
+  previewCtx.arc(mousePosition.x, mousePosition.y, size, 0, 2 * Math.PI);
+  previewCtx.strokeStyle = color;
+  previewCtx.lineWidth = 3;
+  previewCtx.stroke();
+  
+  // Draw click effects if enabled and recent
+  if (config.mouse.clickEffects && Date.now() - lastClickTime < 1000) {
+    const elapsed = Date.now() - lastClickTime;
+    const progress = elapsed / 1000; // 0 to 1
+    
+    switch (config.mouse.clickAnimation) {
+      case 'ripple':
+        renderRippleEffect(mousePosition.x, mousePosition.y, progress, color);
+        break;
+      case 'pulse':
+        renderPulseEffect(mousePosition.x, mousePosition.y, progress, color);
+        break;
+      case 'ring':
+        renderRingEffect(mousePosition.x, mousePosition.y, progress, color);
+        break;
+    }
+  }
+}
+
+function renderRippleEffect(x, y, progress, color) {
+  const maxRadius = 50;
+  const radius = progress * maxRadius;
+  const opacity = 1 - progress;
+  
+  previewCtx.beginPath();
+  previewCtx.arc(x, y, radius, 0, 2 * Math.PI);
+  previewCtx.strokeStyle = color + Math.floor(opacity * 255).toString(16).padStart(2, '0');
+  previewCtx.lineWidth = 2;
+  previewCtx.stroke();
+}
+
+function renderPulseEffect(x, y, progress, color) {
+  const baseSize = 15;
+  const pulseSize = baseSize + (Math.sin(progress * Math.PI * 4) * 10);
+  const opacity = 1 - progress;
+  
+  previewCtx.beginPath();
+  previewCtx.arc(x, y, pulseSize, 0, 2 * Math.PI);
+  previewCtx.fillStyle = color + Math.floor(opacity * 128).toString(16).padStart(2, '0');
+  previewCtx.fill();
+}
+
+function renderRingEffect(x, y, progress, color) {
+  const rings = 3;
+  for (let i = 0; i < rings; i++) {
+    const ringProgress = Math.max(0, progress - (i * 0.2));
+    if (ringProgress <= 0) continue;
+    
+    const radius = ringProgress * 40;
+    const opacity = (1 - ringProgress) * 0.5;
+    
+    previewCtx.beginPath();
+    previewCtx.arc(x, y, radius, 0, 2 * Math.PI);
+    previewCtx.strokeStyle = color + Math.floor(opacity * 255).toString(16).padStart(2, '0');
+    previewCtx.lineWidth = 2;
+    previewCtx.stroke();
+  }
+}
+
+function renderZoomIndicators() {
+  // Show zoom level and sensitivity area
+  const centerX = previewCanvas.width / 2;
+  const centerY = previewCanvas.height / 2;
+  const zoomRadius = 100 / config.zoom.level; // Smaller radius = higher zoom
+  
+  // Draw zoom area indicator
+  previewCtx.beginPath();
+  previewCtx.arc(mousePosition.x, mousePosition.y, zoomRadius, 0, 2 * Math.PI);
+  previewCtx.strokeStyle = '#1db954';
+  previewCtx.lineWidth = 2;
+  previewCtx.setLineDash([5, 5]);
+  previewCtx.stroke();
+  previewCtx.setLineDash([]);
+  
+  // Draw zoom level text
+  previewCtx.fillStyle = '#1db954';
+  previewCtx.font = '14px Inter, sans-serif';
+  previewCtx.fillText(`${config.zoom.level}x`, mousePosition.x + zoomRadius + 10, mousePosition.y);
+}
+
 function initializeZoomMouseSettings() {
   const enableZoom = document.getElementById('enable-zoom');
   const zoomSettings = document.getElementById('zoom-settings');
@@ -235,12 +408,26 @@ function initializeZoomMouseSettings() {
     config.zoom.enabled = this.checked;
     zoomSettings.classList.toggle('disabled', !this.checked);
     updatePreviewStatus();
+    if (previewCanvas) {
+      // Reset animation to show immediate effect
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+      renderPreviewEffects();
+    }
   });
 
   enableMouse.addEventListener('change', function () {
     config.mouse.enabled = this.checked;
     mouseSettings.classList.toggle('disabled', !this.checked);
     updatePreviewStatus();
+    if (previewCanvas) {
+      // Reset animation to show immediate effect
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      }
+      renderPreviewEffects();
+    }
   });
 
   document.getElementById('zoom-level').addEventListener('input', function () {
