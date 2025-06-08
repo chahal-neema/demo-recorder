@@ -22,6 +22,9 @@ function cacheDOMElements() {
         zoomLevelValue: document.getElementById('zoom-level-value'),
         zoomSpeedSlider: document.getElementById('zoom-speed'),
         zoomSpeedValue: document.getElementById('zoom-speed-value'),
+        zoomTriggerSelect: document.getElementById('zoom-trigger'),
+        zoomSensitivitySlider: document.getElementById('zoom-sensitivity'),
+        zoomSensitivityValue: document.getElementById('zoom-sensitivity-value'),
 
         enableMouseTrackingCheck: document.getElementById('enable-mouse-tracking'),
         mouseSettings: document.getElementById('mouse-settings'),
@@ -83,6 +86,11 @@ function updateZoomSpeedLabel(value) {
     domElements.zoomSpeedValue.textContent = labels[value - 1];
 }
 
+function updateZoomSensitivityLabel(value) {
+    const levels = ['Very Low', 'Low', 'Low-Med', 'Medium', 'Med-High', 'High', 'Higher', 'Very High', 'Maximum', 'Ultra'];
+    domElements.zoomSensitivityValue.textContent = levels[value - 1];
+}
+
 function updateHighlightSizeLabel(value) {
     const labels = ['Tiny', 'Small', 'Medium', 'Large', 'Extra Large'];
     domElements.highlightSizeValue.textContent = labels[value - 1];
@@ -141,6 +149,13 @@ function setupEventListeners(handlers) {
         config.zoom.speed = parseInt(e.target.value, 10);
         updateZoomSpeedLabel(config.zoom.speed);
     });
+    domElements.zoomTriggerSelect.addEventListener('change', (e) => {
+        config.zoom.trigger = e.target.value;
+    });
+    domElements.zoomSensitivitySlider.addEventListener('input', (e) => {
+        config.zoom.sensitivity = parseInt(e.target.value, 10);
+        updateZoomSensitivityLabel(config.zoom.sensitivity);
+    });
 
     // Mouse settings
     domElements.enableMouseTrackingCheck.addEventListener('change', (e) => {
@@ -175,6 +190,7 @@ module.exports = {
     updateStatus,
     updateZoomLevelLabel,
     updateZoomSpeedLabel,
+    updateZoomSensitivityLabel,
     updateHighlightSizeLabel,
     updateColorLabel,
     setupEventListeners
