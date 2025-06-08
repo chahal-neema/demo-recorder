@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Demo Recorder</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="app">
+        <header class="header">
+            <div class="header-content">
+                <h1>Demo Recorder</h1>
+                <div class="recording-status">
+                    <span id="status-indicator" class="status-indicator"></span>
+                    <span id="status-text">Ready</span>
+                    <span id="recording-timer" class="timer">00:00</span>
+                </div>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <div class="controls-panel">
+                <div class="source-selection">
+                    <h3>Select Recording Source</h3>
+                    <div class="source-grid" id="source-grid">
+                        <!-- Sources will be populated here -->
+                    </div>
+                    <button id="refresh-sources" class="btn btn-secondary">
+                        🔄 Refresh Sources
+                    </button>
+                </div>
+
+                <div class="recording-options">
+                    <h3>Recording Options</h3>
+                    <div class="option-group">
+                        <label>
+                            <input type="checkbox" id="include-audio" checked>
+                            Include System Audio
+                        </label>
+                    </div>
+                    <div class="option-group">
+                        <label>
+                            <input type="checkbox" id="include-microphone">
+                            Include Microphone
+                        </label>
+                    </div>
+                    <div class="option-group">
+                        <label>
+                            Quality:
+                            <select id="quality-select">
+                                <option value="high">High (1080p)</option>
+                                <option value="medium" selected>Medium (720p)</option>
+                                <option value="low">Low (480p)</option>
+                            </select>
+                        </label>
+                    </div>
+                    <div class="option-group">
+                        <label>
+                            Frame Rate:
+                            <select id="framerate-select">
+                                <option value="60">60 FPS</option>
+                                <option value="30" selected>30 FPS</option>
+                                <option value="24">24 FPS</option>
+                                <option value="15">15 FPS</option>
+                            </select>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="recording-controls">
+                    <button id="start-recording" class="btn btn-primary" disabled>
+                        ⏺️ Start Recording
+                    </button>
+                    <button id="pause-recording" class="btn btn-warning" disabled>
+                        ⏸️ Pause
+                    </button>
+                    <button id="stop-recording" class="btn btn-danger" disabled>
+                        ⏹️ Stop
+                    </button>
+                </div>
+            </div>
+
+            <div class="preview-panel">
+                <h3>Preview</h3>
+                <div class="preview-container">
+                    <video id="preview-video" autoplay muted></video>
+                    <div id="preview-placeholder" class="preview-placeholder">
+                        <p>Select a source to see preview</p>
+                    </div>
+                </div>
+                
+                <div class="recordings-section">
+                    <h3>Recent Recordings</h3>
+                    <div id="recordings-list" class="recordings-list">
+                        <p class="no-recordings">No recordings yet</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <div id="save-modal" class="modal">
+            <div class="modal-content">
+                <h3>Recording Complete!</h3>
+                <p>Your recording is ready. Choose what to do:</p>
+                <div class="modal-actions">
+                    <button id="save-file" class="btn btn-primary">💾 Save to File</button>
+                    <button id="preview-recording" class="btn btn-secondary">👁️ Preview</button>
+                    <button id="discard-recording" class="btn btn-danger">🗑️ Discard</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="renderer.js"></script>
+</body>
+</html>
