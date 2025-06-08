@@ -146,8 +146,15 @@ async function selectSource(sourceId) {
 
   // Initialize preview effects when video starts playing
   video.addEventListener('loadedmetadata', () => {
+    console.log('Video loadedmetadata - initializing preview effects');
     initializePreviewEffects();
   });
+
+  // Also try immediate initialization as backup
+  setTimeout(() => {
+    console.log('Timeout backup - initializing preview effects');
+    initializePreviewEffects();
+  }, 1000);
 
   const options = { mimeType: 'video/webm; codecs=vp9,opus' };
   recordedChunks = [];
@@ -238,8 +245,16 @@ let lastClickTime = 0;
 let animationFrameId = null;
 
 function initializePreviewEffects() {
+  console.log('initializePreviewEffects called');
   const previewContainer = document.querySelector('.preview-container');
   const video = document.getElementById('preview-video');
+  
+  if (!previewContainer || !video) {
+    console.error('Preview container or video not found');
+    return;
+  }
+  
+  console.log('Creating preview canvas...');
   
   // Create overlay canvas for effects
   if (!previewCanvas) {
@@ -249,8 +264,10 @@ function initializePreviewEffects() {
     previewCanvas.style.left = '0';
     previewCanvas.style.pointerEvents = 'none';
     previewCanvas.style.zIndex = '10';
+    previewCanvas.style.border = '2px solid red'; // Temporary debug border
     previewContainer.appendChild(previewCanvas);
     previewCtx = previewCanvas.getContext('2d');
+    console.log('Canvas created and added to container');
   }
   
   // Set canvas size to match video
@@ -271,17 +288,20 @@ function initializePreviewEffects() {
     const rect = previewCanvas.getBoundingClientRect();
     mousePosition.x = (e.clientX - rect.left) * (previewCanvas.width / rect.width);
     mousePosition.y = (e.clientY - rect.top) * (previewCanvas.height / rect.height);
+    console.log('Mouse position:', mousePosition.x, mousePosition.y);
   });
   
   // Track mouse clicks for click effects
   previewContainer.addEventListener('click', (e) => {
     lastClickTime = Date.now();
+    console.log('Click detected at:', mousePosition.x, mousePosition.y);
   });
   
   // Start rendering loop
   if (animationFrameId) {
     cancelAnimationFrame(animationFrameId);
   }
+  console.log('Starting render loop...');
   renderPreviewEffects();
 }
 
