@@ -1,4 +1,4 @@
-const { desktopCapturer, ipcMain, dialog, app, screen, globalShortcut } = require('electron');
+const { desktopCapturer, ipcMain, dialog, app, screen, globalShortcut, shell } = require('electron');
 const fs = require('fs');
 
 let recording = false;
@@ -56,6 +56,12 @@ function registerHandlers(window) {
 
   ipcMain.handle('get-app-version', () => {
     return app.getVersion();
+  });
+
+  ipcMain.handle('open-recordings-folder', async () => {
+    const dir = app.getPath('videos');
+    await shell.openPath(dir);
+    return dir;
   });
 
   ipcMain.on('recording-started', () => {
