@@ -49,6 +49,13 @@
 - [ ] Implement sensitivity-based zoom activation
 - [ ] Add keyboard activity monitoring (optional)
 
+### Post-Processing Module
+- [ ] Create `src/services/PostProcessor.js` for recorded video analysis
+- [ ] Detect universal UI elements from frames (buttons, text fields, menus)
+- [ ] Analyze mouse movement to infer intent patterns
+- [ ] Build activity heatmap to plan camera movements
+- [ ] Integrate post-processing step into export workflow
+
 ## 🎯 Phase 4: Mouse Highlighting & Effects
 
 ### Cursor Overlay System
