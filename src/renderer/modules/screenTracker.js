@@ -183,11 +183,16 @@ class ScreenTracker {
         }
 
         console.log('🖥️ Getting recording bounds for source:', this.selectedSource);
+        console.log('🖥️ Selected source TYPE:', this.selectedSource.type);
+        console.log('🖥️ Selected source ID:', this.selectedSource.id);
+        console.log('🖥️ Selected source NAME:', this.selectedSource.name);
+        console.log('🖥️ Selected source DISPLAY_ID:', this.selectedSource.display_id);
+        
         const displayInfo = await ipcRenderer.invoke('get-display-info');
         console.log('🖥️ Display info received:', displayInfo);
         
         if (this.selectedSource.type === 'screen') {
-            // First try to use display_id if available
+            // ALWAYS use display_id if available (this is the most reliable method)
             if (this.selectedSource.display_id) {
                 console.log('🖥️ Using display_id from source:', this.selectedSource.display_id);
                 const display = displayInfo.displays.find(d => 
@@ -195,11 +200,12 @@ class ScreenTracker {
                 );
                 
                 if (display) {
-                    console.log('🖥️ Found display by display_id:', display);
+                    console.log('🖥️ ✅ Found display by display_id:', display);
                     console.log('🖥️ Recording bounds:', display.bounds);
                     return display.bounds;
                 } else {
-                    console.log('⚠️ Display not found by display_id, trying screen index...');
+                    console.log('⚠️ Display not found by display_id, available IDs:', 
+                        displayInfo.displays.map(d => d.id));
                 }
             }
             
@@ -216,18 +222,65 @@ class ScreenTracker {
             
             console.log('🖥️ Parsed screen index:', screenIndex);
             console.log('🖥️ Available displays:', displayInfo.displays.map((d, i) => ({ 
-                index: i, id: d.id, bounds: d.bounds, label: d.label 
+                index: i, id: d.id, bounds: d.bounds, label: d.label || 'Unknown'
             })));
             
-            // Use screen index to select display, with bounds check
-            const display = displayInfo.displays[screenIndex] || displayInfo.displays[0] || displayInfo.primary;
+            // Try to match by name pattern first
+            if (this.selectedSource.name && this.selectedSource.name.includes('Screen ')) {
+                const screenNumber = parseInt(this.selectedSource.name.split('Screen ')[1]);
+                console.log('🖥️ Extracted screen number from name:', screenNumber);
+                
+                // Try to find a display that matches this screen number
+                // Look for displays with labels that might correspond
+                for (let i = 0; i < displayInfo.displays.length; i++) {
+                    const display = displayInfo.displays[i];
+                    // For primary displays or when screen number matches position
+                    if ((screenNumber === 1 && !display.internal && display.label) || 
+                        (screenNumber === 2 && display.internal)) {
+                        console.log('🖥️ ✅ Found display by screen pattern matching:', display);
+                        console.log('🖥️ Recording bounds:', display.bounds);
+                        return display.bounds;
+                    }
+                }
+            }
             
-            console.log('🖥️ Selected display by index:', display);
-            console.log('🖥️ Recording bounds:', display.bounds);
-            return display.bounds;
+            // Final fallback: use primary display for Screen 1, first internal for Screen 2
+            const isScreen1 = this.selectedSource.name && this.selectedSource.name.includes('Screen 1');
+            if (isScreen1) {
+                const primaryDisplay = displayInfo.primary;
+                console.log('🖥️ ✅ Using primary display for Screen 1:', primaryDisplay);
+                console.log('🖥️ Recording bounds:', primaryDisplay.bounds);
+                return primaryDisplay.bounds;
+            } else {
+                // For other screens, use first available display
+                const firstDisplay = displayInfo.displays[0] || displayInfo.primary;
+                console.log('🖥️ ✅ Using first available display:', firstDisplay);
+                console.log('🖥️ Recording bounds:', firstDisplay.bounds);
+                return firstDisplay.bounds;
+            }
         } else {
-            console.log('🖥️ Window source - using primary display bounds');
-            return displayInfo.primary.bounds;
+            // Window source - need to get the actual window bounds
+            console.log('🖥️ Window source detected:', this.selectedSource.name);
+            
+            // For window sources, we need to get the window's actual position and size
+            // This is more complex as we need to track the specific window
+            // For now, let's use a more intelligent approach
+            
+            try {
+                // Try to get window bounds from the source name or other available info
+                // If we can't get specific bounds, use the primary display as fallback
+                console.log('🖥️ Attempting to get window bounds for:', this.selectedSource);
+                
+                // TODO: Implement proper window bounds detection
+                // For now, use primary display bounds but log that this needs improvement
+                console.log('⚠️ Window bounds detection not fully implemented - using primary display');
+                console.log('🖥️ Consider selecting a screen source for full click detection coverage');
+                
+                return displayInfo.primary.bounds;
+            } catch (error) {
+                console.error('❌ Error getting window bounds:', error);
+                return displayInfo.primary.bounds;
+            }
         }
     }
 

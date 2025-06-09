@@ -139,11 +139,18 @@ function startAdvancedClickTracking() {
           
           // Notify renderer immediately
           if (mainWindow && !mainWindow.isDestroyed()) {
+            console.log('📡 SENDING IPC to renderer:', { x: currentPos.x, y: currentPos.y });
             mainWindow.webContents.send('global-click', { 
               x: currentPos.x, 
               y: currentPos.y, 
               timestamp: now,
               source: 'advanced-detection'
+            });
+            console.log('📡 IPC SENT successfully');
+          } else {
+            console.log('❌ Cannot send IPC - mainWindow invalid:', {
+              exists: !!mainWindow,
+              destroyed: mainWindow ? mainWindow.isDestroyed() : 'N/A'
             });
           }
         }
@@ -207,4 +214,8 @@ function stopAdvancedClickTracking() {
   mouseHistory = [];
 }
 
-module.exports = { registerHandlers };
+function isRecording() {
+  return recording;
+}
+
+module.exports = { registerHandlers, isRecording };

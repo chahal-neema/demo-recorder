@@ -522,6 +522,8 @@ class StreamProcessor {
             this.sourceVideo.srcObject = null;
         }
     }
+
+
 }
 
 module.exports = StreamProcessor; 

@@ -57,7 +57,7 @@ document.addEventListener('DOMContentLoaded', () => {
 async function initializeApp() {
     try {
         // Cache DOM elements
-        dom = UI.cacheDOMElements();
+    dom = UI.cacheDOMElements();
         logger.success('DOM elements cached');
         
         // Initialize modules
@@ -302,6 +302,7 @@ function setupIPCListeners() {
     });
 
     ipcRenderer.on('global-click', (event, clickData) => {
+        console.log('🌍 IPC GLOBAL CLICK RECEIVED:', clickData);
         logger.mouse('Global click IPC received:', clickData);
         mouseTracker.handleGlobalClick(clickData);
     });
