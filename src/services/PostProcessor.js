@@ -82,13 +82,56 @@ class PostProcessor {
     return zones;
   }
 
+  classifyFrame(frame) {
+    if (frame.keyPressCount > 0 || frame.focusedInput) return 'typing';
+    if (frame.clickCount > 0) return 'clicking';
+    if (frame.menuOpened || frame.sectionChanged) return 'navigating';
+    if (frame.viewingText || frame.scrollAmount > 0) return 'viewing';
+    if (frame.scanMovement > 3) return 'lost';
+    return 'idle';
+  }
+
+  zoomForAction(action, lastZoom) {
+    switch (action) {
+      case 'typing':
+        return 2.0;               // Close zoom for typing clarity
+      case 'clicking':
+        return 1.5;               // Moderate zoom on clicks
+      case 'viewing':
+        return 1.5;               // Stable moderate zoom for text
+      case 'navigating':
+        return lastZoom > 1.0 ? 1.0 : 1.5; // Zoom out then back in
+      case 'lost':
+        return 1.0;               // Show big picture
+      default:
+        return lastZoom;
+    }
+  }
+
   generateCameraWork(ui, intents, heatmap) {
-    // Simplified camera decision using heatmap importance
-    const important = Object.keys(heatmap).sort(
-      (a, b) => (heatmap[b].time + heatmap[b].activity) -
-                (heatmap[a].time + heatmap[a].activity)
-    );
-    return { ui, intents, heatmap, cameraPath: important };
+    const cameraPath = [];
+    let lastZoom = 1.0;
+
+    this.recording.frames.forEach((frame, index) => {
+      const action = this.classifyFrame(frame);
+      let zoom = this.zoomForAction(action, lastZoom);
+
+      if (action === 'navigating') {
+        if (lastZoom !== 1.0) {
+          cameraPath.push({ frame: index, zoom: 1.0, reason: 'navigate-out' });
+        }
+        cameraPath.push({ frame: index + 1, zoom: 1.5, reason: 'navigate-in' });
+        lastZoom = 1.5;
+        return;
+      }
+
+      if (zoom !== lastZoom) {
+        cameraPath.push({ frame: index, zoom, reason: action });
+        lastZoom = zoom;
+      }
+    });
+
+    return { ui, intents, heatmap, cameraPath };
   }
 
   // --- Internal helpers (placeholders) ---
