@@ -1,4 +1,5 @@
 const { ipcRenderer } = require('electron');
+const { config } = require('./config.js');
 
 class MouseTracker {
     constructor() {
@@ -43,6 +44,7 @@ class MouseTracker {
     startPositionTracking() {
         if (this.mouseTrackingInterval) clearInterval(this.mouseTrackingInterval);
         
+        const interval = config.mouse.trackingInterval;
         this.mouseTrackingInterval = setInterval(async () => {
             if (!this.streamProcessor || !this.isTracking) return;
             
@@ -64,7 +66,7 @@ class MouseTracker {
             } catch (error) {
                 console.error('Error tracking mouse position:', error);
             }
-        }, 16); // ~60fps
+        }, interval);
     }
 
     // Stop position tracking
@@ -81,6 +83,7 @@ class MouseTracker {
         
         console.log('🖱️ Starting enhanced click detection...');
         
+        const interval = config.mouse.clickInterval;
         this.mouseClickInterval = setInterval(async () => {
             if (!this.streamProcessor || !this.isTracking) return;
             
@@ -115,7 +118,7 @@ class MouseTracker {
             } catch (error) {
                 console.error('Error in enhanced click detection:', error);
             }
-        }, 50); // Check every 50ms
+        }, interval);
     }
 
     // Stop click detection
@@ -220,4 +223,4 @@ class MouseTracker {
     }
 }
 
-module.exports = MouseTracker; 
+module.exports = MouseTracker;

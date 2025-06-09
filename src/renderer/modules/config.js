@@ -5,6 +5,9 @@ const config = {
     speed: 2,        // Slower, smoother transition (was 3)
     trigger: 'click',
     sensitivity: 5,
+    gracePeriod: 2000,          // ms before zoom can trigger
+    followLagZoomed: 0.25,      // how quickly zoomed view follows cursor
+    followLagNormal: 0.15,      // follow speed when not zoomed
   },
   mouse: {
     enabled: true,
@@ -13,6 +16,8 @@ const config = {
     highlightSize: 3,
     highlightColor: '#1db954',
     clickAnimation: 'ripple',
+    trackingInterval: 16,       // ms between mouse position checks
+    clickInterval: 50,          // ms between click detection checks
   },
   recording: {
     includeAudio: true,
@@ -26,4 +31,4 @@ function updateConfig(newConfig) {
   Object.assign(config, newConfig);
 }
 
-module.exports = { config, updateConfig }; 
+module.exports = { config, updateConfig };

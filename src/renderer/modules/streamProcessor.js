@@ -157,7 +157,7 @@ class StreamProcessor {
     handleZoomTrigger() {
         const now = Date.now();
         const timeSinceRecordingStart = now - this.recordingStartTime;
-        const gracePeriod = 2000; // 2 seconds grace period (reduced for faster response)
+        const gracePeriod = config.zoom.gracePeriod;
         let shouldZoom = false;
         
         console.log('🎯 handleZoomTrigger called');
@@ -227,7 +227,7 @@ class StreamProcessor {
     forceZoomOutIfNeeded() {
         const now = Date.now();
         const timeSinceRecordingStart = now - this.recordingStartTime;
-        const gracePeriod = 2000; // 2 seconds grace period (reduced for faster response)
+        const gracePeriod = config.zoom.gracePeriod;
         
         // During grace period, always force 1x zoom
         if (timeSinceRecordingStart < gracePeriod) {
@@ -275,7 +275,7 @@ class StreamProcessor {
     updateZoomCenter() {
         // Use more responsive lag when zoomed in to better track cursor
         const isZoomedIn = this.zoomLevel > 1.05 || this.targetZoomLevel > 1.05;
-        const lag = isZoomedIn ? 0.25 : 0.15; // More responsive when zoomed
+        const lag = isZoomedIn ? config.zoom.followLagZoomed : config.zoom.followLagNormal;
         
         const oldCenter = { x: this.zoomCenter.x, y: this.zoomCenter.y };
         this.zoomCenter.x += (this.zoomCenterTarget.x - this.zoomCenter.x) * lag;
@@ -458,7 +458,7 @@ class StreamProcessor {
     onMouseClick() {
         const clickTime = Date.now();
         const timeSinceRecordingStart = clickTime - this.recordingStartTime;
-        const gracePeriod = 2000; // 2 seconds grace period (reduced for faster response)
+        const gracePeriod = config.zoom.gracePeriod;
         
         console.log('🖱️ Click detected in StreamProcessor!');
         console.log('   Zoom enabled:', config.zoom.enabled);
@@ -524,4 +524,4 @@ class StreamProcessor {
     }
 }
 
-module.exports = StreamProcessor; 
+module.exports = StreamProcessor;

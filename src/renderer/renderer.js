@@ -126,8 +126,11 @@ function initializeUI() {
     if(dom.zoomLevelSlider) UI.updateZoomLevelLabel(dom.zoomLevelSlider.value);
     if(dom.zoomSpeedSlider) UI.updateZoomSpeedLabel(dom.zoomSpeedSlider.value);
     if(dom.zoomSensitivitySlider) UI.updateZoomSensitivityLabel(dom.zoomSensitivitySlider.value);
+    if(dom.zoomGraceSlider) UI.updateZoomGraceLabel(dom.zoomGraceSlider.value);
     if(dom.highlightSizeSlider) UI.updateHighlightSizeLabel(dom.highlightSizeSlider.value);
     if(dom.highlightColorPicker) UI.updateColorLabel(dom.highlightColorPicker.value);
+    if(dom.trackingIntervalSlider) UI.updateTrackingIntervalLabel(dom.trackingIntervalSlider.value);
+    if(dom.clickIntervalSlider) UI.updateClickIntervalLabel(dom.clickIntervalSlider.value);
     
     logger.ui('UI initialized');
 }
@@ -547,3 +550,4 @@ window.getRecordingState = () => recordingStateMachine.getState();
 window.getScreenTracker = () => screenTracker;
 window.getMouseTracker = () => mouseTracker;
 window.getLogger = () => logger;
+

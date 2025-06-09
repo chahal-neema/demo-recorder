@@ -25,6 +25,8 @@ function cacheDOMElements() {
         zoomTriggerSelect: document.getElementById('zoom-trigger'),
         zoomSensitivitySlider: document.getElementById('zoom-sensitivity'),
         zoomSensitivityValue: document.getElementById('zoom-sensitivity-value'),
+        zoomGraceSlider: document.getElementById('zoom-grace'),
+        zoomGraceValue: document.getElementById('zoom-grace-value'),
 
         enableMouseTrackingCheck: document.getElementById('enable-mouse-tracking'),
         mouseSettings: document.getElementById('mouse-settings'),
@@ -35,6 +37,10 @@ function cacheDOMElements() {
         highlightColorLabel: document.querySelector('.color-label'),
         clickEffectsCheck: document.getElementById('click-effects'),
         clickAnimationSelect: document.getElementById('click-animation'),
+        trackingIntervalSlider: document.getElementById('tracking-interval'),
+        trackingIntervalValue: document.getElementById('tracking-interval-value'),
+        clickIntervalSlider: document.getElementById('click-interval'),
+        clickIntervalValue: document.getElementById('click-interval-value'),
 
         // Recording Controls
         startBtn: document.getElementById('start-recording'),
@@ -89,6 +95,18 @@ function updateZoomSpeedLabel(value) {
 function updateZoomSensitivityLabel(value) {
     const levels = ['Very Low', 'Low', 'Low-Med', 'Medium', 'Med-High', 'High', 'Higher', 'Very High', 'Maximum', 'Ultra'];
     domElements.zoomSensitivityValue.textContent = levels[value - 1];
+}
+
+function updateZoomGraceLabel(value) {
+    domElements.zoomGraceValue.textContent = `${value}s`;
+}
+
+function updateTrackingIntervalLabel(value) {
+    domElements.trackingIntervalValue.textContent = `${value}ms`;
+}
+
+function updateClickIntervalLabel(value) {
+    domElements.clickIntervalValue.textContent = `${value}ms`;
 }
 
 function updateHighlightSizeLabel(value) {
@@ -156,6 +174,10 @@ function setupEventListeners(handlers) {
         config.zoom.sensitivity = parseInt(e.target.value, 10);
         updateZoomSensitivityLabel(config.zoom.sensitivity);
     });
+    domElements.zoomGraceSlider.addEventListener('input', (e) => {
+        config.zoom.gracePeriod = parseFloat(e.target.value) * 1000;
+        updateZoomGraceLabel(e.target.value);
+    });
 
     // Mouse settings
     domElements.enableMouseTrackingCheck.addEventListener('change', (e) => {
@@ -173,6 +195,14 @@ function setupEventListeners(handlers) {
         updateColorLabel(config.mouse.highlightColor);
     });
     domElements.clickAnimationSelect.addEventListener('change', (e) => config.mouse.clickAnimation = e.target.value);
+    domElements.trackingIntervalSlider.addEventListener('input', (e) => {
+        config.mouse.trackingInterval = parseInt(e.target.value, 10);
+        updateTrackingIntervalLabel(config.mouse.trackingInterval);
+    });
+    domElements.clickIntervalSlider.addEventListener('input', (e) => {
+        config.mouse.clickInterval = parseInt(e.target.value, 10);
+        updateClickIntervalLabel(config.mouse.clickInterval);
+    });
 
     // Recording controls
     domElements.startBtn.addEventListener('click', handlers.onStartRecording);
@@ -191,7 +221,10 @@ module.exports = {
     updateZoomLevelLabel,
     updateZoomSpeedLabel,
     updateZoomSensitivityLabel,
+    updateZoomGraceLabel,
     updateHighlightSizeLabel,
     updateColorLabel,
+    updateTrackingIntervalLabel,
+    updateClickIntervalLabel,
     setupEventListeners
-}; 
+};

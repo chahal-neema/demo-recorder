@@ -103,6 +103,12 @@
                             </label>
                             <input type="range" id="zoom-sensitivity" min="1" max="10" step="1" value="5" class="custom-range" aria-label="Sensitivity">
                         </div>
+                        <div class="option-group">
+                            <label class="range-label">Initial Wait:
+                                <span class="range-value" id="zoom-grace-value">2s</span>
+                            </label>
+                            <input type="range" id="zoom-grace" min="0" max="5" step="0.5" value="2" class="custom-range" aria-label="Initial Wait">
+                        </div>
                     </div>
 
                     <div class="feature-toggle">
@@ -143,6 +149,18 @@
                                     <option value="none">None</option>
                                 </select>
                             </label>
+                        </div>
+                        <div class="option-group">
+                            <label class="range-label">Tracking Interval:
+                                <span class="range-value" id="tracking-interval-value">16ms</span>
+                            </label>
+                            <input type="range" id="tracking-interval" min="16" max="100" step="4" value="16" class="custom-range" aria-label="Tracking Interval">
+                        </div>
+                        <div class="option-group">
+                            <label class="range-label">Click Interval:
+                                <span class="range-value" id="click-interval-value">50ms</span>
+                            </label>
+                            <input type="range" id="click-interval" min="30" max="200" step="10" value="50" class="custom-range" aria-label="Click Interval">
                         </div>
                     </div>
                 </div>
