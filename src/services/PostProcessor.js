@@ -1,6 +1,39 @@
+const ffmpeg = require('fluent-ffmpeg');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { randomBytes } = require('crypto');
+
 class PostProcessor {
   constructor(recording) {
     this.recording = recording;
+  }
+
+  async processBuffer(buffer) {
+    const tmpDir = os.tmpdir();
+    const inputPath = path.join(tmpDir, `rec-${randomBytes(6).toString('hex')}.webm`);
+    const outputPath = path.join(tmpDir, `proc-${randomBytes(6).toString('hex')}.mp4`);
+
+    fs.writeFileSync(inputPath, buffer);
+
+    await new Promise((resolve, reject) => {
+      ffmpeg(inputPath)
+        .outputOptions([
+          '-c:v libx264',
+          '-preset veryfast',
+          '-crf 23',
+          '-movflags +faststart'
+        ])
+        .on('end', resolve)
+        .on('error', reject)
+        .save(outputPath);
+    });
+
+    const processed = fs.readFileSync(outputPath);
+    fs.unlinkSync(inputPath);
+    fs.unlinkSync(outputPath);
+
+    return processed;
   }
 
   process() {

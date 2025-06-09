@@ -6,6 +6,7 @@ const ScreenTracker = require('./modules/screenTracker.js');
 const MouseTracker = require('./modules/mouseTracker.js');
 const StreamProcessor = require('./modules/streamProcessor.js');
 const logger = require('./modules/logger.js');
+const PostProcessor = require('../services/PostProcessor.js');
 
 // Initialize logging system
 logger.initialize('debug.log');
@@ -175,21 +176,30 @@ function handleScreenError(message, error) {
 }
 
 async function handleRecordingComplete(buffer) {
-    logger.recording('Recording completed, saving...');
-    
+    logger.recording('Recording completed, starting post-processing...');
+
+    let processedBuffer = buffer;
+    try {
+        const processor = new PostProcessor();
+        processedBuffer = await processor.processBuffer(buffer);
+        logger.recording('Post-processing complete');
+    } catch (err) {
+        logger.error('Post-processing failed, using original recording', err);
+    }
+
     // Cleanup
     if (streamProcessor) {
         streamProcessor.destroy();
         streamProcessor = null;
     }
-    
+
     mouseTracker.stopTracking();
-    
+
     // Notify main process
     ipcRenderer.send('recording-stopped');
-    
+
     // Save recording
-    await ipcRenderer.invoke('save-recording', buffer);
+    await ipcRenderer.invoke('save-recording', processedBuffer);
 }
 
 // --- Recording Functions ---
