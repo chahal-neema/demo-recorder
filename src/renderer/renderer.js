@@ -306,6 +306,35 @@ function setupIPCListeners() {
         logger.mouse('Global click IPC received:', clickData);
         mouseTracker.handleGlobalClick(clickData);
     });
+
+    // Menu actions from the native application menu
+    ipcRenderer.on('menu-start-recording', () => {
+        logger.ui('Menu triggered start recording');
+        startRecording();
+    });
+
+    ipcRenderer.on('menu-stop-recording', () => {
+        logger.ui('Menu triggered stop recording');
+        recordingStateMachine.stopRecording();
+    });
+
+    ipcRenderer.on('menu-pause-recording', () => {
+        logger.ui('Menu triggered pause/resume');
+        recordingStateMachine.pauseRecording();
+    });
+
+    ipcRenderer.on('menu-new-recording', () => {
+        logger.ui('Menu triggered new recording');
+        if (recordingStateMachine.getState().isRecording) {
+            recordingStateMachine.stopRecording();
+        }
+        window.location.reload();
+    });
+
+    ipcRenderer.on('menu-open-recordings', async () => {
+        logger.ui('Menu triggered open recordings folder');
+        await ipcRenderer.invoke('open-recordings-folder');
+    });
 }
 
 // --- Debug Functions ---
