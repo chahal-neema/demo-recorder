@@ -47,9 +47,28 @@ function renderSources(sources, gridElement, onSelect) {
 
         item.addEventListener('click', () => {
             console.log('🎯 Source item clicked:', source);
+            console.log('🎯 Raw source data:', JSON.stringify(source, null, 2));
+            
+            // Better type detection
+            let sourceType = 'screen'; // default
+            if (source.id.includes('window:')) {
+                sourceType = 'window';
+            } else if (source.id.includes('screen:')) {
+                sourceType = 'screen';
+            }
+            
+            const selectedSource = { 
+                id: source.id, 
+                name: source.name, 
+                type: sourceType,
+                display_id: source.display_id // Make sure this is passed through
+            };
+            
+            console.log('🎯 Selected source object:', selectedSource);
+            
             document.querySelectorAll('.source-item').forEach(i => i.classList.remove('selected'));
             item.classList.add('selected');
-            onSelect({ id: source.id, name: source.name, type: source.id.includes('window') ? 'window' : 'screen' });
+            onSelect(selectedSource);
         });
 
         gridElement.appendChild(item);
