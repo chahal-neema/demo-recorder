@@ -73,6 +73,12 @@ class StreamProcessor {
         this.zoomExitConditions = new Set();
         this.lastZoomExitCheck = 0;
         
+        // Smart zoom centering
+        this.elementBounds = null;
+        this.predictiveCenter = { x: 0.5, y: 0.5 };
+        this.centerSmoothingFactor = 0.15; // How quickly center adjusts
+        this.lastCenterUpdate = 0;
+        
         // Zoom animation properties
         this.zoomTransition = {
             active: false,
@@ -178,12 +184,17 @@ class StreamProcessor {
         // Clear any existing exit conditions
         this.zoomExitConditions.clear();
         
+        // Calculate smart zoom center for the UI element
+        const elementCenter = this.calculateElementCenter(elementType, detection);
+        this.applyCenterSmoothing(elementCenter);
+        
         // Select appropriate zoom level based on element type
         const newZoomLevel = this.selectZoomLevelForElement(elementType, detection);
         
         if (newZoomLevel !== this.targetZoomLevel) {
             console.log('🔍 Changing zoom level for', elementType, 'from', this.targetZoomLevel, 'to', newZoomLevel);
             console.log('⏱️ Using persistence rule:', this.currentUIElement.persistenceRule);
+            console.log('🎯 Smart center:', elementCenter);
             this.targetZoomLevel = newZoomLevel;
             this.lastZoomChangeTime = now;
             this.startZoomTransition();
@@ -512,9 +523,21 @@ class StreamProcessor {
     }
 
     updateZoomCenter() {
+        // Update predictive centering for moving elements
+        this.updatePredictiveCenter();
+        
         // Use more responsive lag when zoomed in to better track cursor
         const isZoomedIn = this.zoomLevel > 1.05 || this.targetZoomLevel > 1.05;
-        const lag = isZoomedIn ? config.zoom.followLagZoomed : config.zoom.followLagNormal;
+        
+        // Adjust lag based on whether we're using smart centering
+        let lag;
+        if (this.currentUIElement && this.elementBounds) {
+            // Use slower, more stable lag for UI element centering
+            lag = isZoomedIn ? 0.08 : 0.05;
+        } else {
+            // Use config-based lag for mouse following
+            lag = isZoomedIn ? config.zoom.followLagZoomed : config.zoom.followLagNormal;
+        }
         
         const oldCenter = { x: this.zoomCenter.x, y: this.zoomCenter.y };
         this.zoomCenter.x += (this.zoomCenterTarget.x - this.zoomCenter.x) * lag;
@@ -526,7 +549,9 @@ class StreamProcessor {
                 target: { x: this.zoomCenterTarget.x.toFixed(3), y: this.zoomCenterTarget.y.toFixed(3) },
                 current: { x: this.zoomCenter.x.toFixed(3), y: this.zoomCenter.y.toFixed(3) },
                 zoomLevel: this.zoomLevel.toFixed(2),
-                mousePos: { x: this.mousePosition.relativeX?.toFixed(3), y: this.mousePosition.relativeY?.toFixed(3) }
+                mousePos: { x: this.mousePosition.relativeX?.toFixed(3), y: this.mousePosition.relativeY?.toFixed(3) },
+                elementType: this.currentUIElement?.type || 'none',
+                smartCentering: !!this.elementBounds
             });
         }
     }
@@ -827,6 +852,58 @@ class StreamProcessor {
         this.startZoomTransition();
     }
     
+    // Test smart zoom centering accuracy
+    testSmartCentering() {
+        console.log('🎯 Testing smart zoom centering...');
+        
+        // Simulate different UI element types for testing
+        const testElements = [
+            {
+                type: 'text-field',
+                detection: {
+                    position: { x: 400, y: 300 },
+                    confidence: 0.9,
+                    avgConfidence: 0.85,
+                    hitCount: 5
+                }
+            },
+            {
+                type: 'button',
+                detection: {
+                    position: { x: 600, y: 200 },
+                    confidence: 0.8,
+                    estimatedSize: { width: 80, height: 30, area: 2400 }
+                }
+            },
+            {
+                type: 'menu',
+                detection: {
+                    position: { x: 200, y: 400 },
+                    confidence: 0.75
+                }
+            }
+        ];
+        
+        let testIndex = 0;
+        const runNextTest = () => {
+            if (testIndex >= testElements.length) {
+                console.log('✅ Smart centering test completed');
+                return;
+            }
+            
+            const element = testElements[testIndex];
+            console.log(`🧪 Testing ${element.type} centering...`);
+            
+            // Simulate UI element detection
+            this.onUIElementDetected(element.type, element.detection);
+            
+            testIndex++;
+            setTimeout(runNextTest, 3000); // 3 seconds between tests
+        };
+        
+        runNextTest();
+    }
+
     destroy() {
         this.isProcessing = false;
         
@@ -932,6 +1009,168 @@ class StreamProcessor {
         } else {
             // No position info, assume it's a click on the element
             this.addZoomExitCondition('click');
+        }
+    }
+
+    // Estimate UI element bounds from detection data
+    estimateElementBounds(elementType, detection) {
+        const position = detection.position;
+        if (!position || !this.recordingBounds) {
+            return null;
+        }
+        
+        // Convert absolute position to relative
+        const relativeX = (position.x - this.recordingBounds.x) / this.recordingBounds.width;
+        const relativeY = (position.y - this.recordingBounds.y) / this.recordingBounds.height;
+        
+        let bounds = {
+            centerX: relativeX,
+            centerY: relativeY,
+            width: 0.1,  // Default 10% of screen width
+            height: 0.05 // Default 5% of screen height
+        };
+        
+        switch (elementType) {
+            case 'text-field':
+                // Text fields are typically wider and shorter
+                bounds.width = 0.15;  // 15% of screen width
+                bounds.height = 0.03; // 3% of screen height
+                
+                // Use heat map data if available
+                if (detection.avgConfidence && detection.hitCount > 3) {
+                    // More hits = more precise bounds
+                    const precision = Math.min(detection.hitCount / 10, 1);
+                    bounds.width *= (1 + precision * 0.5);
+                }
+                break;
+                
+            case 'button':
+                // Use estimated size if available
+                if (detection.estimatedSize) {
+                    const size = detection.estimatedSize;
+                    bounds.width = Math.max(0.05, Math.min(0.2, size.width / this.recordingBounds.width));
+                    bounds.height = Math.max(0.03, Math.min(0.1, size.height / this.recordingBounds.height));
+                } else {
+                    // Default button size
+                    bounds.width = 0.08;  // 8% of screen width
+                    bounds.height = 0.04; // 4% of screen height
+                }
+                break;
+                
+            case 'menu':
+            case 'dropdown':
+                // Menus are typically taller and narrower
+                bounds.width = 0.12;  // 12% of screen width
+                bounds.height = 0.15; // 15% of screen height
+                break;
+                
+            default:
+                // Keep default bounds
+                break;
+        }
+        
+        // Ensure bounds are within screen limits
+        bounds.centerX = Math.max(bounds.width/2, Math.min(1 - bounds.width/2, bounds.centerX));
+        bounds.centerY = Math.max(bounds.height/2, Math.min(1 - bounds.height/2, bounds.centerY));
+        
+        return bounds;
+    }
+
+    // Calculate optimal zoom center for UI element
+    calculateElementCenter(elementType, detection) {
+        const bounds = this.estimateElementBounds(elementType, detection);
+        if (!bounds) {
+            // Fallback to mouse position
+            return {
+                x: this.mousePosition.relativeX || 0.5,
+                y: this.mousePosition.relativeY || 0.5
+            };
+        }
+        
+        this.elementBounds = bounds;
+        
+        // For text fields, center slightly above the field to show context
+        if (elementType === 'text-field') {
+            return {
+                x: bounds.centerX,
+                y: Math.max(0.1, bounds.centerY - 0.05) // Slightly above
+            };
+        }
+        
+        // For buttons, center exactly on the button
+        if (elementType === 'button') {
+            return {
+                x: bounds.centerX,
+                y: bounds.centerY
+            };
+        }
+        
+        // For menus, center slightly to show more options below
+        if (elementType === 'menu' || elementType === 'dropdown') {
+            return {
+                x: bounds.centerX,
+                y: Math.max(0.15, bounds.centerY - 0.1) // Show more below
+            };
+        }
+        
+        // Default: center on element
+        return {
+            x: bounds.centerX,
+            y: bounds.centerY
+        };
+    }
+
+    // Implement predictive centering for moving elements
+    updatePredictiveCenter() {
+        if (!this.currentUIElement || !this.elementBounds) {
+            return;
+        }
+        
+        const now = Date.now();
+        const timeDelta = now - this.lastCenterUpdate;
+        
+        if (timeDelta < 50) return; // Update at most every 50ms
+        
+        // Track mouse movement velocity for prediction
+        const mouseVelocityX = this.mousePosition.relativeX - (this.lastMousePosition?.relativeX || this.mousePosition.relativeX);
+        const mouseVelocityY = this.mousePosition.relativeY - (this.lastMousePosition?.relativeY || this.mousePosition.relativeY);
+        
+        // Predict where the element might be in the next 200ms
+        const predictionTime = 0.2; // 200ms
+        this.predictiveCenter.x = this.elementBounds.centerX + (mouseVelocityX * predictionTime);
+        this.predictiveCenter.y = this.elementBounds.centerY + (mouseVelocityY * predictionTime);
+        
+        // Clamp to screen bounds
+        this.predictiveCenter.x = Math.max(0.1, Math.min(0.9, this.predictiveCenter.x));
+        this.predictiveCenter.y = Math.max(0.1, Math.min(0.9, this.predictiveCenter.y));
+        
+        this.lastCenterUpdate = now;
+        this.lastMousePosition = { ...this.mousePosition };
+    }
+
+    // Add zoom center smoothing for stability
+    applyCenterSmoothing(targetCenter) {
+        const smoothing = this.centerSmoothingFactor;
+        
+        // Apply smoothing to prevent jittery zoom center
+        const smoothedCenter = {
+            x: this.zoomCenter.x + (targetCenter.x - this.zoomCenter.x) * smoothing,
+            y: this.zoomCenter.y + (targetCenter.y - this.zoomCenter.y) * smoothing
+        };
+        
+        // Only update if the change is significant enough
+        const deltaX = Math.abs(smoothedCenter.x - this.zoomCenter.x);
+        const deltaY = Math.abs(smoothedCenter.y - this.zoomCenter.y);
+        
+        if (deltaX > 0.01 || deltaY > 0.01) {
+            this.zoomCenterTarget.x = smoothedCenter.x;
+            this.zoomCenterTarget.y = smoothedCenter.y;
+            
+            console.log('🎯 Smart zoom center updated:', {
+                target: { x: targetCenter.x.toFixed(3), y: targetCenter.y.toFixed(3) },
+                smoothed: { x: smoothedCenter.x.toFixed(3), y: smoothedCenter.y.toFixed(3) },
+                element: this.currentUIElement?.type
+            });
         }
     }
 }
