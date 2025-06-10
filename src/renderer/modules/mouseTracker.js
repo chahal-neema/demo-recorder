@@ -1,5 +1,6 @@
 const { ipcRenderer } = require('electron');
 const { config } = require('./config.js');
+const { FormFieldDetector } = require('./uiDetection.js');
 
 class MouseTracker {
     constructor() {
@@ -16,6 +17,9 @@ class MouseTracker {
         this.cursorHistory = [];
         this.lastCursorState = null;
         this.cursorTrackingInterval = null;
+        
+        // UI detection
+        this.formFieldDetector = new FormFieldDetector();
     }
 
     // Initialize with StreamProcessor reference
@@ -33,6 +37,7 @@ class MouseTracker {
         this.startPositionTracking();
         this.startClickDetection();
         this.startCursorStateTracking();
+        this.formFieldDetector.startDetection();
     }
 
     // Stop mouse tracking
@@ -45,6 +50,7 @@ class MouseTracker {
         this.stopPositionTracking();
         this.stopClickDetection();
         this.stopCursorStateTracking();
+        this.formFieldDetector.stopDetection();
     }
 
     // Start real-time mouse position tracking
@@ -244,6 +250,19 @@ class MouseTracker {
                     }
                 }
                 
+                // Analyze cursor state for form field detection
+                const mousePosition = await ipcRenderer.invoke('get-cursor-position');
+                const textFieldDetection = this.formFieldDetector.analyzeCursorState(cursorInfo, mousePosition);
+                
+                if (textFieldDetection && textFieldDetection.fieldConfidence > 0.8) {
+                    console.log('📝 High-confidence text field detected via cursor analysis');
+                    
+                    // Notify StreamProcessor about text field detection
+                    if (this.streamProcessor) {
+                        this.streamProcessor.onUIElementDetected('text-field', textFieldDetection);
+                    }
+                }
+                
                 this.lastCursorState = cursorInfo;
                 
             } catch (error) {
@@ -310,8 +329,20 @@ class MouseTracker {
         };
     }
 
+    // Get form field detection at position
+    getFormFieldDetectionAt(position, radius = 20) {
+        return this.formFieldDetector.getTextFieldDetectionAt(position, radius);
+    }
+
+    // Test form field detection accuracy
+    testFormFieldDetection() {
+        return this.formFieldDetector.testDetectionAccuracy();
+    }
+
     // Get tracking state
     getState() {
+        const formFieldStats = this.formFieldDetector.getStats();
+        
         return {
             isTracking: this.isTracking,
             hasStreamProcessor: !!this.streamProcessor,
@@ -319,7 +350,8 @@ class MouseTracker {
             hasClickDetection: !!this.mouseClickInterval,
             hasCursorTracking: !!this.cursorTrackingInterval,
             cursorHistoryLength: this.cursorHistory.length,
-            lastCursorType: this.lastCursorState?.type || 'unknown'
+            lastCursorType: this.lastCursorState?.type || 'unknown',
+            formFieldDetection: formFieldStats
         };
     }
 
@@ -328,6 +360,7 @@ class MouseTracker {
         this.stopTracking();
         this.cursorHistory = [];
         this.lastCursorState = null;
+        this.formFieldDetector.destroy();
         this.streamProcessor = null;
     }
 }

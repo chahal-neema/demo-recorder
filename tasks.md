@@ -1,145 +1,113 @@
-# Demo Recorder - Enhanced Features Implementation Tasks
+# Smart UI Element Detection & Zoom Tasks
 
-## 🎯 Phase 1: UI Infrastructure Updates
+Based on the current codebase and the UI element detection requirements, here are focused tasks:
 
-### Frontend Structure (refer to reference_code.md file)
-- [ ] Replace `src/renderer/index.html` with enhanced version (add new sections for zoom/mouse controls)
-- [ ] Update `src/renderer/styles.css` with new Spotify-like theme and enhanced controls
-- [ ] Add source type tabs (Screen/Window/Browser Tab) functionality
-- [ ] Implement toggle switches for zoom and mouse tracking features
-- [ ] Add range sliders for zoom level, speed, sensitivity, highlight size
-- [ ] Add color picker for mouse highlight color
+## Phase 1: Cursor State Detection (3 tasks)
 
-### Source Selection Enhancement  
-- [ ] Update `desktopCapturer.getSources()` to categorize by type (screen/window)
-- [ ] Add mock browser tab sources (prepare for future implementation)
-- [ ] Implement source filtering and dynamic loading based on selected tab
-- [ ] Add source thumbnails and improved selection UI
+### Task 1.1: Add Cursor State Tracking
+**Context**: Need to detect cursor changes (text/pointer) to identify UI element types.
+- [x] Add `getCursorInfo()` IPC handler in `src/main/ipcHandlers.js` using Electron APIs
+- [x] Implement cursor type detection (text, pointer, default) from system
+- [x] Add cursor position and type polling in MouseTracker
+- [x] Store cursor state history for pattern analysis
+- [x] Test cursor state detection across different applications
 
-## 🎯 Phase 2: Core Recording Features
+### Task 1.2: Implement Form Field Detection
+**Context**: Detect text input fields when cursor changes to text/I-beam.
+- [ ] Add `FormFieldDetector` class in `src/renderer/modules/uiDetection.js`
+- [ ] Implement text cursor detection with 95% confidence scoring
+- [ ] Add click-to-typing pattern detection (2-second window)
+- [ ] Track text field positions and create heat map
+- [ ] Test form field detection accuracy
 
-### Audio Enhancement
-- [ ] Add audio device enumeration (`navigator.mediaDevices.enumerateDevices()`)
-- [ ] Implement system audio + microphone mixing
-- [ ] Add audio settings to recording configuration
-- [ ] Update recording constraints based on UI audio settings
+### Task 1.3: Add Button/Clickable Detection
+**Context**: Detect buttons and clickable elements via pointer cursor and hover behavior.
+- [ ] Add `ButtonDetector` class with pointer cursor detection
+- [ ] Implement mouse deceleration and hover timing analysis
+- [ ] Add button size estimation from hover area
+- [ ] Create clickable element confidence scoring
+- [ ] Test button detection across different UI frameworks
 
-### Quality & Settings
-- [ ] Implement quality settings (High/Medium/Low) with proper video constraints
-- [ ] Add framerate selection functionality
-- [ ] Create settings persistence (save/load user preferences)
-- [ ] Add configuration validation
+## Phase 2: Enhanced Zoom Logic (4 tasks)
 
-## 🎯 Phase 3: Smart Zoom Implementation
+### Task 2.1: Implement Multi-Level Zoom System
+**Context**: Current zoom is binary on/off. Need multiple zoom levels for different UI elements.
+- [ ] Update StreamProcessor with zoom level presets (1.5x, 1.8x, 2.2x, 2.5x)
+- [ ] Add zoom level selection based on UI element type
+- [ ] Implement smooth transitions between different zoom levels
+- [ ] Add zoom level override for element size (small buttons = higher zoom)
+- [ ] Test multi-level zoom transitions
 
-### Mouse Tracking Service
-- [ ] Create `src/services/MouseTracker.js` class
-- [ ] Add IPC handler for real-time mouse position (`ipcMain.handle('get-mouse-position')`)
-- [ ] Implement mouse movement detection and activity hotspots
-- [ ] Add zoom trigger detection (mouse/click/keyboard/both)
+### Task 2.2: Add Context-Aware Zoom Timing
+**Context**: Different UI elements need different zoom durations and timing.
+- [ ] Implement element-specific zoom durations in StreamProcessor
+- [ ] Add zoom persistence rules (form fields stay zoomed, buttons timeout)
+- [ ] Create zoom exit condition detection
+- [ ] Add 300ms minimum between zoom changes
+- [ ] Test timing behavior for each element type
 
-### Zoom Processing
-- [ ] Create `src/services/ZoomProcessor.js` for video stream processing
-- [ ] Implement Canvas-based zoom transformations
-- [ ] Add smooth zoom transitions and animations
-- [ ] Apply zoom effects to MediaStream during recording
+### Task 2.3: Implement Smart Zoom Centering
+**Context**: Zoom should center on UI element, not just mouse position.
+- [ ] Add UI element bounds estimation in detection modules
+- [ ] Update zoom center calculation to use element center vs mouse position
+- [ ] Implement predictive centering for moving elements
+- [ ] Add zoom center smoothing for stability
+- [ ] Test centering accuracy for different element sizes
 
-### Activity Detection
-- [ ] Add mouse click detection for zoom triggers
-- [ ] Implement sensitivity-based zoom activation
-- [ ] Add keyboard activity monitoring (optional)
+### Task 2.4: Add Zoom Conflict Resolution
+**Context**: Handle overlapping UI elements and zoom priority.
+- [ ] Create zoom priority system (text input > dropdown > button > default)
+- [ ] Implement smooth transitions between conflicting zoom requests
+- [ ] Add emergency zoom-out for rapid mouse movement (>500px/sec)
+- [ ] Create user override mechanism (manual zoom disables auto for 5 seconds)
+- [ ] Test conflict resolution scenarios
 
-### Post-Processing Module
-- [ ] Create `src/services/PostProcessor.js` for recorded video analysis
-- [ ] Detect universal UI elements from frames (buttons, text fields, menus)
-- [ ] Analyze mouse movement to infer intent patterns
-- [ ] Build activity heatmap to plan camera movements
-- [ ] Integrate post-processing step into export workflow
+## Phase 3: Dropdown/Menu Detection (3 tasks)
 
-## 🎯 Phase 4: Mouse Highlighting & Effects
+### Task 3.1: Implement Menu Appearance Detection
+**Context**: Detect when dropdowns/menus appear after button clicks.
+- [ ] Add `MenuDetector` class with UI change detection
+- [ ] Implement before/after screen comparison for new elements
+- [ ] Add vertical list pattern recognition
+- [ ] Create overlay-style element detection
+- [ ] Test menu detection accuracy
 
-### Cursor Overlay System
-- [ ] Create `src/services/CursorOverlay.js` class
-- [ ] Implement cursor highlight rendering with customizable size/color
-- [ ] Add click animation effects (ripple, pulse, ring, none)
-- [ ] Create overlay canvas for mouse effects
+### Task 3.2: Add Multi-Phase Menu Zoom
+**Context**: Menus need different zoom behavior: zoom out → show context → zoom in on selection.
+- [ ] Implement 3-phase menu zoom sequence in StreamProcessor
+- [ ] Add menu navigation tracking and zoom following
+- [ ] Create hover-based menu item highlighting
+- [ ] Add selection confirmation zoom (2.0x briefly)
+- [ ] Test complete menu interaction workflow
 
-### Stream Compositing
-- [ ] Implement canvas compositing (original stream + cursor overlay + zoom)
-- [ ] Ensure smooth performance (30/60fps)
-- [ ] Add real-time preview of mouse effects
+### Task 3.3: Implement Menu Exit Detection
+**Context**: Detect when menus close or are abandoned.
+- [ ] Add menu element disappearance detection
+- [ ] Implement outside-click detection for menu dismissal
+- [ ] Add menu abandonment detection (mouse leaves for >2 seconds)
+- [ ] Create ESC key detection for menu closure
+- [ ] Test all menu exit scenarios
 
-## 🎯 Phase 5: Backend Integration
+## Phase 4: Integration & Polish (2 tasks)
 
-### Enhanced Main Process
-- [ ] Add new IPC handlers for zoom/mouse configuration
-- [ ] Update `src/main.js` with new menu shortcuts for enhanced features
-- [ ] Add settings persistence to main process
-- [ ] Handle cross-platform mouse position tracking
+### Task 4.1: Integrate UI Detection with Existing System
+**Context**: Connect new UI detection with current zoom/mouse tracking.
+- [ ] Update MouseTracker to use UI detection results
+- [ ] Modify StreamProcessor to accept UI element type for zoom decisions
+- [ ] Add UI detection results to preview effects
+- [ ] Integrate detection confidence scores with zoom triggers
+- [ ] Test end-to-end UI-aware zoom behavior
 
-### Renderer Process Updates
-- [ ] Update `src/renderer/renderer.js` with new UI event handlers
-- [ ] Implement configuration state management
-- [ ] Add real-time preview updates for zoom/mouse settings
-- [ ] Update recording pipeline to include effects processing
-
-### Service Architecture
-- [ ] Create `src/services/` directory structure
-- [ ] Implement `ConfigManager.js` for settings management
-- [ ] Create `StreamProcessor.js` for unified stream processing
-- [ ] Add utility functions in `src/utils/` for canvas and stream operations
-
-## 🎯 Phase 6: Testing & Polish
-
-### Functionality Testing
-- [ ] Test all zoom configurations and triggers
-- [ ] Verify mouse highlighting and click effects
-- [ ] Test recording quality with effects enabled
-- [ ] Test audio recording with new settings
-
-### Performance & Optimization
-- [ ] Optimize canvas operations for smooth performance
-- [ ] Test memory usage during extended recordings
-- [ ] Ensure cross-platform compatibility
-- [ ] Add error handling for edge cases
-
-### UI/UX Polish
-- [ ] Add loading states for source refreshing
-- [ ] Implement proper disabled states for controls
-- [ ] Add tooltips or help text for new features
-- [ ] Test responsive design on different screen sizes
-
-## 🎯 Phase 7: Final Integration
-
-### End-to-End Testing
-- [ ] Test complete recording workflow with all features
-- [ ] Verify saved recordings include zoom and mouse effects
-- [ ] Test pause/resume functionality with effects
-- [ ] Validate file saving and playback
-
-### Documentation
-- [ ] Update README.md with new features
-- [ ] Add feature descriptions and usage instructions
-- [ ] Document any new dependencies or requirements
+### Task 4.2: Add Performance & Safety Mechanisms
+**Context**: Ensure UI detection doesn't impact recording performance.
+- [ ] Optimize UI detection to run at 10fps max (not 60fps)
+- [ ] Add detection result caching to reduce CPU usage
+- [ ] Implement detection failure fallbacks to current behavior
+- [ ] Add performance monitoring and automatic degradation
+- [ ] Test performance impact during recording
 
 ---
 
-## 🚀 Getting Started
-
-**Priority Order:**
-1. Start with Phase 1 (UI Infrastructure) - foundation for everything else
-2. Move to Phase 2 (Core Recording) - essential functionality
-3. Implement Phase 3 (Smart Zoom) - major new feature
-4. Add Phase 4 (Mouse Effects) - visual enhancements
-5. Complete Phase 5 (Backend Integration) - make it all work together
-6. Finish with Phases 6-7 (Testing & Polish) - ensure quality
-
-**Next Steps:**
-- [ ] Begin with updating the HTML structure (`src/renderer/index.html`)
-- [ ] Update CSS with new theme and controls
-- [ ] Test basic UI functionality before moving to backend features
-
----
-
-*Total estimated tasks: ~45 checkboxes*
-*Estimated completion time: 4-6 weeks*
+**Total Tasks: 12 focused tasks**
+**Focus**: Transform current basic zoom into intelligent UI-aware zoom system
+**Key Outcome**: Zoom behavior that understands what user is interacting with
