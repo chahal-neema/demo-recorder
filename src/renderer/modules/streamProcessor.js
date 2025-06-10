@@ -41,6 +41,38 @@ class StreamProcessor {
         this.lastZoomChangeTime = 0;
         this.zoomCooldown = 300; // Minimum 300ms between zoom changes
         
+        // Context-aware zoom timing
+        this.zoomPersistenceRules = {
+            'text-field': { 
+                duration: 10000,    // 10 seconds - stay zoomed while typing
+                persistent: true,   // Don't auto-zoom out
+                exitConditions: ['cursor_leave', 'click_outside', 'escape_key']
+            },
+            'button': { 
+                duration: 3000,     // 3 seconds - quick zoom for button interaction
+                persistent: false,  // Auto-zoom out after timeout
+                exitConditions: ['click', 'cursor_leave']
+            },
+            'menu': { 
+                duration: 8000,     // 8 seconds - medium duration for menu navigation
+                persistent: false,  // Auto-zoom out after timeout
+                exitConditions: ['click_outside', 'escape_key', 'menu_close']
+            },
+            'dropdown': { 
+                duration: 8000,     // 8 seconds - same as menu
+                persistent: false,
+                exitConditions: ['selection', 'click_outside', 'escape_key']
+            },
+            'default': { 
+                duration: 5000,     // 5 seconds - default timeout
+                persistent: false,
+                exitConditions: ['timeout']
+            }
+        };
+        
+        this.zoomExitConditions = new Set();
+        this.lastZoomExitCheck = 0;
+        
         // Zoom animation properties
         this.zoomTransition = {
             active: false,
@@ -109,8 +141,19 @@ class StreamProcessor {
         console.log('   Processed stream created with', this.processedStream.getTracks().length, 'tracks');
         
         this.startProcessing();
+        this.setupKeyboardHandling();
         console.log('✅ StreamProcessor initialization complete');
         return this.processedStream;
+    }
+
+    // Setup keyboard event handling for zoom exit conditions
+    setupKeyboardHandling() {
+        this.keyboardHandler = (event) => {
+            this.onKeyboardEvent(event);
+        };
+        
+        document.addEventListener('keydown', this.keyboardHandler);
+        console.log('⌨️ Keyboard handling setup for zoom exit conditions');
     }
 
     // Handle UI element detection from MouseTracker
@@ -127,14 +170,20 @@ class StreamProcessor {
         this.currentUIElement = {
             type: elementType,
             detection: detection,
-            timestamp: now
+            timestamp: now,
+            zoomStartTime: now,
+            persistenceRule: this.zoomPersistenceRules[elementType] || this.zoomPersistenceRules.default
         };
+        
+        // Clear any existing exit conditions
+        this.zoomExitConditions.clear();
         
         // Select appropriate zoom level based on element type
         const newZoomLevel = this.selectZoomLevelForElement(elementType, detection);
         
         if (newZoomLevel !== this.targetZoomLevel) {
             console.log('🔍 Changing zoom level for', elementType, 'from', this.targetZoomLevel, 'to', newZoomLevel);
+            console.log('⏱️ Using persistence rule:', this.currentUIElement.persistenceRule);
             this.targetZoomLevel = newZoomLevel;
             this.lastZoomChangeTime = now;
             this.startZoomTransition();
@@ -283,6 +332,12 @@ class StreamProcessor {
                 this.handleZoomTrigger();
             }
             
+            // Check zoom exit conditions every 1 second
+            if (!this.lastZoomExitCheck || now - this.lastZoomExitCheck > 1000) {
+                this.lastZoomExitCheck = now;
+                this.checkZoomExitConditions();
+            }
+            
             // Additional aggressive zoom-out check every 2 seconds
             if (!this.lastForceCheck || now - this.lastForceCheck > 2000) {
                 this.lastForceCheck = now;
@@ -344,6 +399,12 @@ class StreamProcessor {
         let newTargetZoomLevel;
         
         if (!shouldZoom) {
+            // Check if we should respect persistence rules before zooming out
+            if (this.currentUIElement && this.currentUIElement.persistenceRule.persistent) {
+                console.log('🔒 Persistent zoom active for', this.currentUIElement.type, '- not zooming out');
+                return; // Don't zoom out for persistent elements
+            }
+            
             // Force zoom out if we've been zoomed in too long without activity
             if (this.zoomLevel > 1.0) {
                 console.log('⏰ Zoom timeout reached - forcing zoom out to 1.0x');
@@ -352,12 +413,24 @@ class StreamProcessor {
         } else {
             // Use UI element-based zoom if available, otherwise fallback to config
             if (this.currentUIElement && (now - this.currentUIElement.timestamp) < 5000) {
-                // Use current UI element zoom level if recent (within 5 seconds)
-                newTargetZoomLevel = this.selectZoomLevelForElement(
-                    this.currentUIElement.type, 
-                    this.currentUIElement.detection
-                );
-                console.log('🎯 Using UI element-based zoom:', newTargetZoomLevel, 'for', this.currentUIElement.type);
+                // Check if we're still within the element's duration
+                const timeSinceZoomStart = now - this.currentUIElement.zoomStartTime;
+                const rule = this.currentUIElement.persistenceRule;
+                
+                if (rule.persistent || timeSinceZoomStart < rule.duration) {
+                    // Use current UI element zoom level
+                    newTargetZoomLevel = this.selectZoomLevelForElement(
+                        this.currentUIElement.type, 
+                        this.currentUIElement.detection
+                    );
+                    console.log('🎯 Using UI element-based zoom:', newTargetZoomLevel, 'for', this.currentUIElement.type, 
+                               '(time:', timeSinceZoomStart, 'ms, duration:', rule.duration, 'ms)');
+                } else {
+                    // Element duration expired, zoom out
+                    console.log('⏰ UI element duration expired for', this.currentUIElement.type);
+                    newTargetZoomLevel = this.zoomPresets.none;
+                    this.currentUIElement = null;
+                }
             } else {
                 // Fallback to config-based zoom (convert to nearest preset)
                 const configZoom = config.zoom.level;
@@ -708,6 +781,9 @@ class StreamProcessor {
         this.zoomCenterTarget.x = this.mousePosition.relativeX;
         this.zoomCenterTarget.y = this.mousePosition.relativeY;
 
+        // Handle click for zoom exit conditions
+        this.onClickEvent(this.mousePosition);
+
         if (config.zoom.enabled && (config.zoom.trigger === 'click' || config.zoom.trigger === 'both')) {
             console.log('🔍 Triggering zoom...');
             // Reset zoom check timer so click triggers immediately
@@ -770,6 +846,92 @@ class StreamProcessor {
         
         if (this.sourceVideo) {
             this.sourceVideo.srcObject = null;
+        }
+        
+        if (this.keyboardHandler) {
+            document.removeEventListener('keydown', this.keyboardHandler);
+            this.keyboardHandler = null;
+        }
+    }
+
+    // Add zoom exit condition
+    addZoomExitCondition(condition) {
+        this.zoomExitConditions.add(condition);
+        console.log('🚪 Zoom exit condition added:', condition);
+        console.log('   Current exit conditions:', Array.from(this.zoomExitConditions));
+        
+        // Check if we should exit zoom immediately
+        this.checkZoomExitConditions();
+    }
+
+    // Check if zoom should exit based on current conditions
+    checkZoomExitConditions() {
+        if (!this.currentUIElement || this.zoomLevel <= 1.05) {
+            return false;
+        }
+        
+        const now = Date.now();
+        const rule = this.currentUIElement.persistenceRule;
+        const timeSinceZoomStart = now - this.currentUIElement.zoomStartTime;
+        
+        // Check timeout condition
+        if (!rule.persistent && timeSinceZoomStart > rule.duration) {
+            console.log('⏰ Zoom timeout reached for', this.currentUIElement.type, 'after', timeSinceZoomStart, 'ms');
+            this.exitZoom('timeout');
+            return true;
+        }
+        
+        // Check exit conditions
+        for (const condition of this.zoomExitConditions) {
+            if (rule.exitConditions.includes(condition)) {
+                console.log('🚪 Zoom exit condition met:', condition, 'for', this.currentUIElement.type);
+                this.exitZoom(condition);
+                return true;
+            }
+        }
+        
+        return false;
+    }
+
+    // Exit zoom with specified reason
+    exitZoom(reason) {
+        console.log('🔚 Exiting zoom due to:', reason);
+        
+        this.targetZoomLevel = this.zoomPresets.none;
+        this.currentUIElement = null;
+        this.zoomExitConditions.clear();
+        this.lastZoomChangeTime = Date.now();
+        this.startZoomTransition();
+    }
+
+    // Handle keyboard events for zoom exit conditions
+    onKeyboardEvent(event) {
+        if (event.key === 'Escape') {
+            this.addZoomExitCondition('escape_key');
+        }
+    }
+
+    // Handle click events for zoom exit conditions
+    onClickEvent(position) {
+        if (!this.currentUIElement) return;
+        
+        // Check if click is outside the current UI element area
+        const detection = this.currentUIElement.detection;
+        if (detection && detection.position) {
+            const distance = Math.sqrt(
+                Math.pow(position.x - detection.position.x, 2) + 
+                Math.pow(position.y - detection.position.y, 2)
+            );
+            
+            // If click is far from the UI element (>50px), consider it "outside"
+            if (distance > 50) {
+                this.addZoomExitCondition('click_outside');
+            } else {
+                this.addZoomExitCondition('click');
+            }
+        } else {
+            // No position info, assume it's a click on the element
+            this.addZoomExitCondition('click');
         }
     }
 }
