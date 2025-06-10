@@ -1,6 +1,6 @@
 const { ipcRenderer } = require('electron');
 const { config } = require('./config.js');
-const { FormFieldDetector } = require('./uiDetection.js');
+const { FormFieldDetector, ButtonDetector } = require('./uiDetection.js');
 
 class MouseTracker {
     constructor() {
@@ -20,6 +20,8 @@ class MouseTracker {
         
         // UI detection
         this.formFieldDetector = new FormFieldDetector();
+        this.buttonDetector = new ButtonDetector();
+        this.lastMouseVelocity = 0;
     }
 
     // Initialize with StreamProcessor reference
@@ -38,6 +40,7 @@ class MouseTracker {
         this.startClickDetection();
         this.startCursorStateTracking();
         this.formFieldDetector.startDetection();
+        this.buttonDetector.startDetection();
     }
 
     // Stop mouse tracking
@@ -51,6 +54,7 @@ class MouseTracker {
         this.stopClickDetection();
         this.stopCursorStateTracking();
         this.formFieldDetector.stopDetection();
+        this.buttonDetector.stopDetection();
     }
 
     // Start real-time mouse position tracking
@@ -250,8 +254,23 @@ class MouseTracker {
                     }
                 }
                 
-                // Analyze cursor state for form field detection
+                // Analyze cursor state for UI element detection
                 const mousePosition = await ipcRenderer.invoke('get-cursor-position');
+                
+                // Calculate mouse velocity
+                let mouseVelocity = 0;
+                if (this.cursorHistory.length > 1) {
+                    const prev = this.cursorHistory[this.cursorHistory.length - 2];
+                    const curr = cursorInfo;
+                    const dx = curr.x - prev.x;
+                    const dy = curr.y - prev.y;
+                    const dt = curr.timestamp - prev.timestamp;
+                    mouseVelocity = dt > 0 ? Math.sqrt(dx * dx + dy * dy) / (dt / 1000) : 0; // pixels per second
+                }
+                
+                this.lastMouseVelocity = mouseVelocity;
+                
+                // Form field detection
                 const textFieldDetection = this.formFieldDetector.analyzeCursorState(cursorInfo, mousePosition);
                 
                 if (textFieldDetection && textFieldDetection.fieldConfidence > 0.8) {
@@ -260,6 +279,18 @@ class MouseTracker {
                     // Notify StreamProcessor about text field detection
                     if (this.streamProcessor) {
                         this.streamProcessor.onUIElementDetected('text-field', textFieldDetection);
+                    }
+                }
+                
+                // Button detection
+                const buttonDetection = this.buttonDetector.analyzeCursorState(cursorInfo, mousePosition, mouseVelocity);
+                
+                if (buttonDetection && buttonDetection.buttonConfidence > 0.8) {
+                    console.log('🔘 High-confidence button detected via cursor analysis');
+                    
+                    // Notify StreamProcessor about button detection
+                    if (this.streamProcessor) {
+                        this.streamProcessor.onUIElementDetected('button', buttonDetection);
                     }
                 }
                 
@@ -334,14 +365,25 @@ class MouseTracker {
         return this.formFieldDetector.getTextFieldDetectionAt(position, radius);
     }
 
+    // Get button detection at position
+    getButtonDetectionAt(position, radius = 25) {
+        return this.buttonDetector.getButtonDetectionAt(position, radius);
+    }
+
     // Test form field detection accuracy
     testFormFieldDetection() {
         return this.formFieldDetector.testDetectionAccuracy();
     }
 
+    // Test button detection accuracy
+    testButtonDetection() {
+        return this.buttonDetector.testDetectionAccuracy();
+    }
+
     // Get tracking state
     getState() {
         const formFieldStats = this.formFieldDetector.getStats();
+        const buttonStats = this.buttonDetector.getStats();
         
         return {
             isTracking: this.isTracking,
@@ -351,7 +393,9 @@ class MouseTracker {
             hasCursorTracking: !!this.cursorTrackingInterval,
             cursorHistoryLength: this.cursorHistory.length,
             lastCursorType: this.lastCursorState?.type || 'unknown',
-            formFieldDetection: formFieldStats
+            lastMouseVelocity: this.lastMouseVelocity,
+            formFieldDetection: formFieldStats,
+            buttonDetection: buttonStats
         };
     }
 
@@ -361,6 +405,7 @@ class MouseTracker {
         this.cursorHistory = [];
         this.lastCursorState = null;
         this.formFieldDetector.destroy();
+        this.buttonDetector.destroy();
         this.streamProcessor = null;
     }
 }

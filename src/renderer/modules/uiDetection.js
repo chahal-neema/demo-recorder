@@ -289,22 +289,390 @@ class ButtonDetector {
         this.detectionHistory = [];
         this.buttonHeatMap = new Map();
         this.isMonitoring = false;
+        this.hoverEvents = [];
+        this.lastMousePosition = null;
+        this.mouseVelocityHistory = [];
+        this.hoverStartTime = null;
+        this.currentHoverArea = null;
     }
 
-    // Placeholder for button detection - will be implemented in Task 1.3
+    // Start button detection
     startDetection() {
+        if (this.isMonitoring) return;
+        
         this.isMonitoring = true;
-        console.log('🔘 Button detector initialized (full implementation in Task 1.3)');
+        console.log('🔘 Starting button/clickable detection...');
     }
 
+    // Stop button detection
     stopDetection() {
+        if (!this.isMonitoring) return;
+        
         this.isMonitoring = false;
+        console.log('🔘 Stopping button/clickable detection...');
+        
+        // Clear hover state
+        this.hoverStartTime = null;
+        this.currentHoverArea = null;
     }
 
+    // Analyze cursor state and mouse behavior for button detection
+    analyzeCursorState(cursorInfo, mousePosition, mouseVelocity = null) {
+        if (!this.isMonitoring) return null;
+        
+        const now = Date.now();
+        const detection = {
+            timestamp: now,
+            position: mousePosition,
+            cursorType: cursorInfo.type,
+            cursorConfidence: cursorInfo.confidence,
+            isPointerCursor: cursorInfo.type === 'pointer',
+            buttonConfidence: 0.0,
+            velocity: mouseVelocity
+        };
+
+        // Track mouse velocity for deceleration analysis
+        if (mouseVelocity !== null) {
+            this.mouseVelocityHistory.push({ 
+                velocity: mouseVelocity, 
+                timestamp: now,
+                position: mousePosition 
+            });
+            
+            // Keep only last 10 velocity measurements (about 1 second at 10fps)
+            if (this.mouseVelocityHistory.length > 10) {
+                this.mouseVelocityHistory.shift();
+            }
+        }
+
+        // Pointer cursor detection with high confidence
+        if (cursorInfo.type === 'pointer' && cursorInfo.confidence >= 0.8) {
+            detection.buttonConfidence = Math.min(0.9, cursorInfo.confidence + 0.1);
+            detection.detectionReason = 'pointer_cursor_high_confidence';
+            
+            this.startHoverTracking(mousePosition, now);
+            this.updateButtonHeatMap(mousePosition, detection.buttonConfidence);
+            
+            console.log('🔘 Button/clickable detected with high confidence:', detection.buttonConfidence, 'at', mousePosition);
+        }
+        
+        // Medium confidence pointer cursor
+        else if (cursorInfo.type === 'pointer' && cursorInfo.confidence >= 0.6) {
+            detection.buttonConfidence = cursorInfo.confidence;
+            detection.detectionReason = 'pointer_cursor_medium_confidence';
+            
+            this.updateButtonHeatMap(mousePosition, detection.buttonConfidence * 0.8);
+        }
+
+        // Analyze mouse deceleration patterns (indicates hovering over clickable)
+        const decelerationPattern = this.analyzeMouseDeceleration();
+        if (decelerationPattern && decelerationPattern.confidence > 0.7) {
+            detection.buttonConfidence = Math.max(detection.buttonConfidence, decelerationPattern.confidence);
+            detection.decelerationDetected = true;
+            detection.detectionReason = detection.detectionReason || 'mouse_deceleration';
+            
+            console.log('🔘 Button detected via deceleration pattern:', decelerationPattern.confidence);
+        }
+
+        // Store detection in history
+        this.detectionHistory.push(detection);
+        
+        // Keep only last 100 detections
+        if (this.detectionHistory.length > 100) {
+            this.detectionHistory.shift();
+        }
+
+        this.lastMousePosition = mousePosition;
+        
+        return detection.buttonConfidence > 0.6 ? detection : null;
+    }
+
+    // Analyze mouse deceleration patterns
+    analyzeMouseDeceleration() {
+        if (this.mouseVelocityHistory.length < 5) return null;
+        
+        const recent = this.mouseVelocityHistory.slice(-5);
+        const velocities = recent.map(v => v.velocity);
+        
+        // Check for deceleration pattern (high -> medium -> low velocity)
+        let decelerationScore = 0;
+        let isDecelerating = true;
+        
+        for (let i = 1; i < velocities.length; i++) {
+            if (velocities[i] >= velocities[i-1]) {
+                isDecelerating = false;
+                break;
+            }
+            
+            const velocityDrop = velocities[i-1] - velocities[i];
+            const relativeChange = velocityDrop / Math.max(velocities[i-1], 1);
+            decelerationScore += relativeChange;
+        }
+        
+        if (!isDecelerating) return null;
+        
+        // Calculate confidence based on deceleration pattern
+        const avgDeceleration = decelerationScore / (velocities.length - 1);
+        const finalVelocity = velocities[velocities.length - 1];
+        
+        // Strong deceleration to near-stop indicates hover over clickable
+        let confidence = 0;
+        if (avgDeceleration > 0.5 && finalVelocity < 2) {
+            confidence = Math.min(0.85, 0.4 + avgDeceleration);
+        } else if (avgDeceleration > 0.3 && finalVelocity < 5) {
+            confidence = Math.min(0.75, 0.3 + avgDeceleration);
+        }
+        
+        return confidence > 0.5 ? { confidence, avgDeceleration, finalVelocity } : null;
+    }
+
+    // Start hover tracking for button size estimation
+    startHoverTracking(position, timestamp) {
+        if (!this.hoverStartTime) {
+            this.hoverStartTime = timestamp;
+            this.currentHoverArea = {
+                startPos: position,
+                minX: position.x,
+                maxX: position.x,
+                minY: position.y,
+                maxY: position.y,
+                positionHistory: [position]
+            };
+        }
+        
+        // Update hover area bounds
+        if (this.currentHoverArea) {
+            this.currentHoverArea.minX = Math.min(this.currentHoverArea.minX, position.x);
+            this.currentHoverArea.maxX = Math.max(this.currentHoverArea.maxX, position.x);
+            this.currentHoverArea.minY = Math.min(this.currentHoverArea.minY, position.y);
+            this.currentHoverArea.maxY = Math.max(this.currentHoverArea.maxY, position.y);
+            this.currentHoverArea.positionHistory.push(position);
+            
+            // Keep position history manageable
+            if (this.currentHoverArea.positionHistory.length > 20) {
+                this.currentHoverArea.positionHistory.shift();
+            }
+        }
+    }
+
+    // End hover tracking and estimate button size
+    endHoverTracking(timestamp) {
+        if (!this.hoverStartTime || !this.currentHoverArea) return null;
+        
+        const hoverDuration = timestamp - this.hoverStartTime;
+        
+        // Only process meaningful hover durations (200ms to 5 seconds)
+        if (hoverDuration < 200 || hoverDuration > 5000) {
+            this.clearHoverState();
+            return null;
+        }
+        
+        const width = this.currentHoverArea.maxX - this.currentHoverArea.minX;
+        const height = this.currentHoverArea.maxY - this.currentHoverArea.minY;
+        const area = width * height;
+        
+        const hoverEvent = {
+            startTime: this.hoverStartTime,
+            endTime: timestamp,
+            duration: hoverDuration,
+            centerPos: {
+                x: (this.currentHoverArea.minX + this.currentHoverArea.maxX) / 2,
+                y: (this.currentHoverArea.minY + this.currentHoverArea.maxY) / 2
+            },
+            estimatedSize: { width, height, area },
+            confidence: this.calculateHoverConfidence(hoverDuration, area)
+        };
+        
+        this.hoverEvents.push(hoverEvent);
+        
+        // Keep only last 20 hover events
+        if (this.hoverEvents.length > 20) {
+            this.hoverEvents.shift();
+        }
+        
+        console.log('🔘 Hover event completed:', hoverEvent);
+        
+        this.clearHoverState();
+        return hoverEvent;
+    }
+
+    // Calculate hover confidence based on duration and area
+    calculateHoverConfidence(duration, area) {
+        let confidence = 0;
+        
+        // Duration-based confidence (ideal hover is 300ms - 2s)
+        if (duration >= 300 && duration <= 2000) {
+            confidence += 0.4;
+        } else if (duration >= 200 && duration <= 3000) {
+            confidence += 0.3;
+        } else {
+            confidence += 0.1;
+        }
+        
+        // Area-based confidence (typical buttons are 20x20 to 200x50 pixels)
+        if (area >= 400 && area <= 10000) { // 20x20 to 100x100
+            confidence += 0.3;
+        } else if (area >= 100 && area <= 20000) { // 10x10 to 141x141
+            confidence += 0.2;
+        } else {
+            confidence += 0.1;
+        }
+        
+        // Movement stability (less movement = more button-like)
+        const movementVariance = this.calculateMovementVariance();
+        if (movementVariance < 10) {
+            confidence += 0.2;
+        } else if (movementVariance < 30) {
+            confidence += 0.1;
+        }
+        
+        return Math.min(0.9, confidence);
+    }
+
+    // Calculate movement variance during hover
+    calculateMovementVariance() {
+        if (!this.currentHoverArea || this.currentHoverArea.positionHistory.length < 3) {
+            return 100; // High variance if no data
+        }
+        
+        const positions = this.currentHoverArea.positionHistory;
+        const centerX = (this.currentHoverArea.minX + this.currentHoverArea.maxX) / 2;
+        const centerY = (this.currentHoverArea.minY + this.currentHoverArea.maxY) / 2;
+        
+        let totalVariance = 0;
+        for (const pos of positions) {
+            const dx = pos.x - centerX;
+            const dy = pos.y - centerY;
+            totalVariance += Math.sqrt(dx * dx + dy * dy);
+        }
+        
+        return totalVariance / positions.length;
+    }
+
+    // Clear hover tracking state
+    clearHoverState() {
+        this.hoverStartTime = null;
+        this.currentHoverArea = null;
+    }
+
+    // Update button heat map
+    updateButtonHeatMap(position, confidence) {
+        if (!position || !position.x || !position.y) return;
+
+        // Create position key (rounded to 15px grid for button clustering)
+        const gridSize = 15;
+        const gridX = Math.round(position.x / gridSize) * gridSize;
+        const gridY = Math.round(position.y / gridSize) * gridSize;
+        const posKey = `${gridX},${gridY}`;
+
+        // Update heat map entry
+        const existing = this.buttonHeatMap.get(posKey) || { 
+            x: gridX, 
+            y: gridY, 
+            totalConfidence: 0, 
+            hitCount: 0, 
+            avgConfidence: 0,
+            lastUpdate: 0,
+            buttonType: 'unknown' 
+        };
+
+        existing.totalConfidence += confidence;
+        existing.hitCount++;
+        existing.avgConfidence = existing.totalConfidence / existing.hitCount;
+        existing.lastUpdate = Date.now();
+
+        this.buttonHeatMap.set(posKey, existing);
+
+        // Clean up old entries
+        this.cleanupHeatMap();
+    }
+
+    // Clean up old heat map entries
+    cleanupHeatMap() {
+        const now = Date.now();
+        const maxAge = 90000; // 90 seconds
+
+        for (const [key, entry] of this.buttonHeatMap.entries()) {
+            if (now - entry.lastUpdate > maxAge) {
+                this.buttonHeatMap.delete(key);
+            }
+        }
+    }
+
+    // Get button detection at position
+    getButtonDetectionAt(position, radius = 25) {
+        if (!position) return null;
+
+        let bestMatch = null;
+        let bestDistance = Infinity;
+
+        for (const entry of this.buttonHeatMap.values()) {
+            const distance = Math.sqrt(
+                Math.pow(entry.x - position.x, 2) + 
+                Math.pow(entry.y - position.y, 2)
+            );
+
+            if (distance <= radius && distance < bestDistance && entry.avgConfidence > 0.6) {
+                bestMatch = {
+                    ...entry,
+                    distance,
+                    confidence: entry.avgConfidence
+                };
+                bestDistance = distance;
+            }
+        }
+
+        return bestMatch;
+    }
+
+    // Get detection statistics
+    getStats() {
+        const now = Date.now();
+        const recentDetections = this.detectionHistory.filter(d => now - d.timestamp < 10000);
+        const recentHovers = this.hoverEvents.filter(h => now - h.endTime < 10000);
+
+        return {
+            isMonitoring: this.isMonitoring,
+            totalDetections: this.detectionHistory.length,
+            recentDetections: recentDetections.length,
+            buttonHotspots: this.buttonHeatMap.size,
+            hoverEvents: this.hoverEvents.length,
+            recentHovers: recentHovers.length,
+            highConfidenceDetections: recentDetections.filter(d => d.buttonConfidence > 0.8).length,
+            currentlyHovering: !!this.hoverStartTime
+        };
+    }
+
+    // Test button detection accuracy
+    testDetectionAccuracy() {
+        const stats = this.getStats();
+        console.log('🔘 Button Detection Test Results:', stats);
+        
+        // Calculate accuracy metrics
+        const totalDetections = this.detectionHistory.length;
+        const highConfidenceDetections = this.detectionHistory.filter(d => d.buttonConfidence > 0.8).length;
+        const accuracy = totalDetections > 0 ? (highConfidenceDetections / totalDetections) * 100 : 0;
+
+        console.log(`📊 Button Detection Accuracy: ${accuracy.toFixed(1)}% (${highConfidenceDetections}/${totalDetections} high-confidence detections)`);
+        
+        return { accuracy, totalDetections, highConfidenceDetections, stats };
+    }
+
+    // Handle cursor leaving potential button area
+    onCursorLeave(position, timestamp) {
+        if (this.hoverStartTime) {
+            this.endHoverTracking(timestamp || Date.now());
+        }
+    }
+
+    // Cleanup
     destroy() {
         this.stopDetection();
         this.detectionHistory = [];
         this.buttonHeatMap.clear();
+        this.hoverEvents = [];
+        this.mouseVelocityHistory = [];
+        this.clearHoverState();
     }
 }
 
