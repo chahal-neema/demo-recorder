@@ -28,6 +28,19 @@ class StreamProcessor {
         this.zoomCenter = { x: 0.5, y: 0.5 };
         this.zoomCenterTarget = { x: 0.5, y: 0.5 };
         
+        // Multi-level zoom system
+        this.zoomPresets = {
+            none: 1.0,
+            low: 1.5,
+            medium: 1.8,
+            high: 2.2,
+            maximum: 2.5
+        };
+        
+        this.currentUIElement = null;
+        this.lastZoomChangeTime = 0;
+        this.zoomCooldown = 300; // Minimum 300ms between zoom changes
+        
         // Zoom animation properties
         this.zoomTransition = {
             active: false,
@@ -37,7 +50,7 @@ class StreamProcessor {
             duration: 500 // ms
         };
         
-        console.log('🔄 Zoom state reset to clean 1.0x state');
+        console.log('🔄 Zoom state reset to clean 1.0x state with multi-level system');
     }
 
     async initialize(originalStream, recordingBounds) {
@@ -98,6 +111,130 @@ class StreamProcessor {
         this.startProcessing();
         console.log('✅ StreamProcessor initialization complete');
         return this.processedStream;
+    }
+
+    // Handle UI element detection from MouseTracker
+    onUIElementDetected(elementType, detection) {
+        const now = Date.now();
+        
+        // Respect zoom cooldown to prevent rapid changes
+        if (now - this.lastZoomChangeTime < this.zoomCooldown) {
+            return;
+        }
+        
+        console.log('🎯 UI Element detected:', elementType, 'confidence:', detection.confidence || detection.fieldConfidence || detection.buttonConfidence);
+        
+        this.currentUIElement = {
+            type: elementType,
+            detection: detection,
+            timestamp: now
+        };
+        
+        // Select appropriate zoom level based on element type
+        const newZoomLevel = this.selectZoomLevelForElement(elementType, detection);
+        
+        if (newZoomLevel !== this.targetZoomLevel) {
+            console.log('🔍 Changing zoom level for', elementType, 'from', this.targetZoomLevel, 'to', newZoomLevel);
+            this.targetZoomLevel = newZoomLevel;
+            this.lastZoomChangeTime = now;
+            this.startZoomTransition();
+        }
+    }
+
+    // Handle cursor type changes from MouseTracker
+    onCursorTypeChange(cursorInfo) {
+        console.log('🖱️ Cursor type changed to:', cursorInfo.type, 'confidence:', cursorInfo.confidence);
+        
+        // Update zoom center based on cursor position
+        if (cursorInfo.x && cursorInfo.y && this.recordingBounds) {
+            const relativeX = (cursorInfo.x - this.recordingBounds.x) / this.recordingBounds.width;
+            const relativeY = (cursorInfo.y - this.recordingBounds.y) / this.recordingBounds.height;
+            
+            this.zoomCenterTarget.x = Math.min(1, Math.max(0, relativeX));
+            this.zoomCenterTarget.y = Math.min(1, Math.max(0, relativeY));
+        }
+    }
+
+    // Select zoom level based on UI element type and properties
+    selectZoomLevelForElement(elementType, detection) {
+        const baseConfidence = detection.confidence || detection.fieldConfidence || detection.buttonConfidence || 0;
+        
+        // Low confidence = lower zoom
+        if (baseConfidence < 0.7) {
+            return this.zoomPresets.low;
+        }
+        
+        switch (elementType) {
+            case 'text-field':
+                // Text fields need high zoom for readability
+                if (baseConfidence >= 0.9) {
+                    return this.zoomPresets.high;
+                } else if (baseConfidence >= 0.8) {
+                    return this.zoomPresets.medium;
+                } else {
+                    return this.zoomPresets.low;
+                }
+                
+            case 'button':
+                // Button zoom based on estimated size and confidence
+                const estimatedSize = detection.estimatedSize;
+                
+                if (estimatedSize && estimatedSize.area) {
+                    // Small buttons need higher zoom
+                    if (estimatedSize.area < 1000) { // Very small button
+                        return this.zoomPresets.maximum;
+                    } else if (estimatedSize.area < 2500) { // Small button
+                        return this.zoomPresets.high;
+                    } else if (estimatedSize.area < 5000) { // Medium button
+                        return this.zoomPresets.medium;
+                    } else { // Large button
+                        return this.zoomPresets.low;
+                    }
+                } else {
+                    // Default button zoom based on confidence
+                    if (baseConfidence >= 0.9) {
+                        return this.zoomPresets.medium;
+                    } else {
+                        return this.zoomPresets.low;
+                    }
+                }
+                
+            case 'menu':
+            case 'dropdown':
+                // Menus need medium zoom to show context
+                return this.zoomPresets.medium;
+                
+            default:
+                // Default zoom for unknown elements
+                return this.zoomPresets.low;
+        }
+    }
+
+    // Get current zoom level name for debugging
+    getCurrentZoomLevelName() {
+        const currentLevel = this.zoomLevel;
+        for (const [name, level] of Object.entries(this.zoomPresets)) {
+            if (Math.abs(currentLevel - level) < 0.1) {
+                return name;
+            }
+        }
+        return 'custom';
+    }
+
+    // Find nearest zoom preset for a given zoom level
+    findNearestZoomPreset(targetZoom) {
+        let nearestPreset = this.zoomPresets.none;
+        let smallestDiff = Math.abs(targetZoom - nearestPreset);
+        
+        for (const [name, level] of Object.entries(this.zoomPresets)) {
+            const diff = Math.abs(targetZoom - level);
+            if (diff < smallestDiff) {
+                smallestDiff = diff;
+                nearestPreset = level;
+            }
+        }
+        
+        return nearestPreset;
     }
 
     getVelocityThreshold() {
@@ -203,11 +340,30 @@ class StreamProcessor {
                 break;
         }
 
-        const newTargetZoomLevel = shouldZoom ? config.zoom.level : 1.0;
+        // Multi-level zoom logic
+        let newTargetZoomLevel;
         
-        // Force zoom out if we've been zoomed in too long without activity
-        if (!shouldZoom && this.zoomLevel > 1.0) {
-            console.log('⏰ Zoom timeout reached - forcing zoom out to 1.0x');
+        if (!shouldZoom) {
+            // Force zoom out if we've been zoomed in too long without activity
+            if (this.zoomLevel > 1.0) {
+                console.log('⏰ Zoom timeout reached - forcing zoom out to 1.0x');
+            }
+            newTargetZoomLevel = this.zoomPresets.none;
+        } else {
+            // Use UI element-based zoom if available, otherwise fallback to config
+            if (this.currentUIElement && (now - this.currentUIElement.timestamp) < 5000) {
+                // Use current UI element zoom level if recent (within 5 seconds)
+                newTargetZoomLevel = this.selectZoomLevelForElement(
+                    this.currentUIElement.type, 
+                    this.currentUIElement.detection
+                );
+                console.log('🎯 Using UI element-based zoom:', newTargetZoomLevel, 'for', this.currentUIElement.type);
+            } else {
+                // Fallback to config-based zoom (convert to nearest preset)
+                const configZoom = config.zoom.level;
+                newTargetZoomLevel = this.findNearestZoomPreset(configZoom);
+                console.log('⚙️ Using config-based zoom preset:', newTargetZoomLevel, '(config:', configZoom, ')');
+            }
         }
         
         this.targetZoomLevel = newTargetZoomLevel;
@@ -256,10 +412,20 @@ class StreamProcessor {
     }
 
     startZoomTransition() {
-        const duration = (6 - config.zoom.speed) * 100;
+        const baseDuration = (6 - config.zoom.speed) * 100;
+        
+        // Adjust duration based on zoom level change magnitude
+        const zoomDifference = Math.abs(this.targetZoomLevel - this.zoomLevel);
+        const durationMultiplier = Math.min(2.0, Math.max(0.5, zoomDifference));
+        const duration = Math.round(baseDuration * durationMultiplier);
+        
         console.log('⚡ startZoomTransition called');
         console.log('   Zoom speed setting:', config.zoom.speed);
-        console.log('   Calculated duration:', duration, 'ms');
+        console.log('   Base duration:', baseDuration, 'ms');
+        console.log('   Zoom difference:', zoomDifference.toFixed(2));
+        console.log('   Duration multiplier:', durationMultiplier.toFixed(2));
+        console.log('   Final duration:', duration, 'ms');
+        console.log('   Transition:', this.zoomLevel.toFixed(2), '->', this.targetZoomLevel.toFixed(2));
         
         this.zoomTransition = {
             active: true,
@@ -560,13 +726,29 @@ class StreamProcessor {
 
     // Debug function to test zoom manually
     testZoom() {
-        console.log('🧪 Manual zoom test triggered');
+        console.log('🧪 Testing multi-level zoom functionality...');
+        console.log('   Current zoom level:', this.zoomLevel, '(' + this.getCurrentZoomLevelName() + ')');
+        console.log('   Target zoom level:', this.targetZoomLevel);
+        console.log('   Zoom presets:', this.zoomPresets);
+        console.log('   Current UI element:', this.currentUIElement);
+        console.log('   Zoom center:', this.zoomCenter);
+        console.log('   Mouse position:', this.mousePosition);
+        console.log('   Last activity time:', this.lastActivityTime);
+        console.log('   Last click time:', this.lastClickTime);
+        
+        // Cycle through zoom presets for testing
+        const presetLevels = Object.values(this.zoomPresets);
+        const currentIndex = presetLevels.findIndex(level => Math.abs(level - this.zoomLevel) < 0.1);
+        const nextIndex = (currentIndex + 1) % presetLevels.length;
+        
+        this.targetZoomLevel = presetLevels[nextIndex];
+        console.log('🔄 Testing zoom transition to:', this.targetZoomLevel);
+        
         this.lastClickTime = Date.now();
         this.lastActivityTime = this.lastClickTime;
         this.zoomCenterTarget.x = 0.5; // Center of screen
         this.zoomCenterTarget.y = 0.5;
-        this.lastZoomCheck = this.lastClickTime;
-        this.handleZoomTrigger();
+        this.startZoomTransition();
     }
     
     destroy() {
