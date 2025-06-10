@@ -11,6 +11,11 @@ class MouseTracker {
         
         // Click detection state
         this.ignoreNextClick = false;
+        
+        // Cursor state tracking
+        this.cursorHistory = [];
+        this.lastCursorState = null;
+        this.cursorTrackingInterval = null;
     }
 
     // Initialize with StreamProcessor reference
@@ -27,6 +32,7 @@ class MouseTracker {
         
         this.startPositionTracking();
         this.startClickDetection();
+        this.startCursorStateTracking();
     }
 
     // Stop mouse tracking
@@ -38,6 +44,7 @@ class MouseTracker {
         
         this.stopPositionTracking();
         this.stopClickDetection();
+        this.stopCursorStateTracking();
     }
 
     // Start real-time mouse position tracking
@@ -206,19 +213,121 @@ class MouseTracker {
         }, 100); // Clear after 100ms
     }
 
+    // Start cursor state tracking
+    startCursorStateTracking() {
+        if (this.cursorTrackingInterval) clearInterval(this.cursorTrackingInterval);
+        
+        console.log('🖱️ Starting cursor state tracking...');
+        
+        // Poll cursor state at 10fps (less frequent than position tracking)
+        this.cursorTrackingInterval = setInterval(async () => {
+            if (!this.isTracking) return;
+            
+            try {
+                const cursorInfo = await ipcRenderer.invoke('get-cursor-info');
+                
+                // Store cursor state in history
+                this.cursorHistory.push(cursorInfo);
+                
+                // Keep only last 50 cursor states (5 seconds at 10fps)
+                if (this.cursorHistory.length > 50) {
+                    this.cursorHistory.shift();
+                }
+                
+                // Detect cursor type changes
+                if (this.lastCursorState && this.lastCursorState.type !== cursorInfo.type) {
+                    console.log('🖱️ Cursor type changed:', this.lastCursorState.type, '->', cursorInfo.type, 'confidence:', cursorInfo.confidence);
+                    
+                    // Notify StreamProcessor about cursor type change
+                    if (this.streamProcessor) {
+                        this.streamProcessor.onCursorTypeChange(cursorInfo);
+                    }
+                }
+                
+                this.lastCursorState = cursorInfo;
+                
+            } catch (error) {
+                console.error('Error tracking cursor state:', error);
+            }
+        }, 100); // 10fps
+    }
+
+    // Stop cursor state tracking
+    stopCursorStateTracking() {
+        if (this.cursorTrackingInterval) {
+            clearInterval(this.cursorTrackingInterval);
+            this.cursorTrackingInterval = null;
+            console.log('🖱️ Cursor state tracking stopped');
+        }
+        this.cursorHistory = [];
+        this.lastCursorState = null;
+    }
+
+    // Get cursor state analysis
+    getCursorStateAnalysis() {
+        if (this.cursorHistory.length < 5) {
+            return { 
+                dominantType: 'default', 
+                confidence: 0.5,
+                recentChanges: 0,
+                stability: 'unknown'
+            };
+        }
+        
+        const recent = this.cursorHistory.slice(-10); // Last 1 second
+        const typeCounts = {};
+        let changes = 0;
+        
+        // Count cursor types and changes
+        for (let i = 0; i < recent.length; i++) {
+            const type = recent[i].type;
+            typeCounts[type] = (typeCounts[type] || 0) + 1;
+            
+            if (i > 0 && recent[i].type !== recent[i-1].type) {
+                changes++;
+            }
+        }
+        
+        // Find dominant type
+        let dominantType = 'default';
+        let maxCount = 0;
+        for (const [type, count] of Object.entries(typeCounts)) {
+            if (count > maxCount) {
+                maxCount = count;
+                dominantType = type;
+            }
+        }
+        
+        const confidence = maxCount / recent.length;
+        const stability = changes <= 1 ? 'stable' : changes <= 3 ? 'moderate' : 'unstable';
+        
+        return {
+            dominantType,
+            confidence,
+            recentChanges: changes,
+            stability,
+            typeCounts
+        };
+    }
+
     // Get tracking state
     getState() {
         return {
             isTracking: this.isTracking,
             hasStreamProcessor: !!this.streamProcessor,
             hasPositionTracking: !!this.mouseTrackingInterval,
-            hasClickDetection: !!this.mouseClickInterval
+            hasClickDetection: !!this.mouseClickInterval,
+            hasCursorTracking: !!this.cursorTrackingInterval,
+            cursorHistoryLength: this.cursorHistory.length,
+            lastCursorType: this.lastCursorState?.type || 'unknown'
         };
     }
 
     // Cleanup
     destroy() {
         this.stopTracking();
+        this.cursorHistory = [];
+        this.lastCursorState = null;
         this.streamProcessor = null;
     }
 }
