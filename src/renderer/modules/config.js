@@ -29,6 +29,7 @@ const config = {
     showPerformance: false,      // Show performance overlay in preview
     showUIDetections: true,      // Show UI detection overlays
     logPerformance: false,       // Log performance metrics to console
+    enableLogging: false,        // Enable verbose file logging
     maxDetectionTime: 50,        // Max time allowed for UI detection (ms)
     cacheTimeout: 500,           // Cache validity time (ms)
     degradationThreshold: 30,    // Performance degradation threshold (ms)

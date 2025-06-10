@@ -14,13 +14,13 @@ class PostProcessor {
     const inputPath = path.join(tmpDir, `rec-${randomBytes(6).toString('hex')}.webm`);
     const outputPath = path.join(tmpDir, `proc-${randomBytes(6).toString('hex')}.mp4`);
 
-    fs.writeFileSync(inputPath, buffer);
+    await fs.promises.writeFile(inputPath, buffer);
 
     await new Promise((resolve, reject) => {
       ffmpeg(inputPath)
         .outputOptions([
           '-c:v libx264',
-          '-preset veryfast',
+          '-preset ultrafast',
           '-crf 23',
           '-movflags +faststart'
         ])
@@ -29,9 +29,9 @@ class PostProcessor {
         .save(outputPath);
     });
 
-    const processed = fs.readFileSync(outputPath);
-    fs.unlinkSync(inputPath);
-    fs.unlinkSync(outputPath);
+    const processed = await fs.promises.readFile(outputPath);
+    await fs.promises.unlink(inputPath);
+    await fs.promises.unlink(outputPath);
 
     return processed;
   }
