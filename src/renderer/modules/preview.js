@@ -1,6 +1,6 @@
 const { ipcRenderer } = require('electron');
 const { config } = require('./config.js');
-const { renderMouseEffects, renderZoomIndicators } = require('./effects.js');
+const { renderMouseEffects, renderZoomIndicators, renderUIDetectionOverlay, renderPerformanceOverlay } = require('./effects.js');
 
 let previewCanvas = null;
 let previewCtx = null;
@@ -12,6 +12,11 @@ let animationFrameId = null;
 let mouseTrackingInterval = null;
 let displayInfo = null;
 let recordingBounds = null;
+
+// UI Detection integration
+let uiDetectionData = null;
+let performanceData = null;
+let uiDataRequestInterval = null;
 
 let dom = {};
 
@@ -29,6 +34,7 @@ async function initializePreview(domElements, selectedSource) {
     
     setupCanvases();
     startRealMouseTracking();
+    startUIDetectionTracking();
     
     if (animationFrameId) cancelAnimationFrame(animationFrameId);
     renderPreviewEffects();
@@ -131,6 +137,28 @@ function startRealMouseTracking() {
     }, 16); // ~60fps
 }
 
+function startUIDetectionTracking() {
+    if (uiDataRequestInterval) clearInterval(uiDataRequestInterval);
+    
+    // Request UI detection data at 10fps (performance optimized)
+    uiDataRequestInterval = setInterval(async () => {
+        try {
+            // Get current UI detection state from MouseTracker
+            const mouseTracker = require('./mouseTracker.js');
+            if (mouseTracker && typeof mouseTracker.getUIDetectionData === 'function') {
+                uiDetectionData = mouseTracker.getUIDetectionData();
+            }
+            
+            // Get performance metrics
+            if (mouseTracker && typeof mouseTracker.getPerformanceMetrics === 'function') {
+                performanceData = mouseTracker.getPerformanceMetrics();
+            }
+        } catch (error) {
+            console.error('Error fetching UI detection data:', error);
+        }
+    }, 100); // 10fps for performance
+}
+
 function renderPreviewEffects() {
     if (!previewCtx) return;
     
@@ -152,11 +180,31 @@ function renderPreviewEffects() {
         renderZoomIndicators(effectData);
     }
     
+    // Render UI detection overlays
+    if (uiDetectionData && config.debug && config.debug.showUIDetections) {
+        renderUIDetectionOverlay({
+            ctx: previewCtx,
+            canvas: previewCanvas,
+            uiDetections: uiDetectionData,
+            recordingBounds: recordingBounds
+        });
+    }
+    
+    // Render performance overlay (optional - can be toggled)
+    if (performanceData && config.debug && config.debug.showPerformance) {
+        renderPerformanceOverlay({
+            ctx: previewCtx,
+            canvas: previewCanvas,
+            performanceData: performanceData
+        });
+    }
+    
     animationFrameId = requestAnimationFrame(renderPreviewEffects);
 }
 
 function stopPreview() {
     if (mouseTrackingInterval) clearInterval(mouseTrackingInterval);
+    if (uiDataRequestInterval) clearInterval(uiDataRequestInterval);
     if (animationFrameId) cancelAnimationFrame(animationFrameId);
     if(previewCanvas && previewCanvas.parentElement) {
         previewCanvas.parentElement.removeChild(previewCanvas);
@@ -164,7 +212,10 @@ function stopPreview() {
     previewCanvas = null;
     previewCtx = null;
     mouseTrackingInterval = null;
+    uiDataRequestInterval = null;
     animationFrameId = null;
+    uiDetectionData = null;
+    performanceData = null;
 }
 
 module.exports = {

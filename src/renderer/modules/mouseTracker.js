@@ -1,5 +1,6 @@
 const { ipcRenderer } = require('electron');
 const { config } = require('./config.js');
+const { FormFieldDetector, ButtonDetector } = require('./uiDetection.js');
 
 class MouseTracker {
     constructor() {
@@ -11,6 +12,16 @@ class MouseTracker {
         
         // Click detection state
         this.ignoreNextClick = false;
+        
+        // Cursor state tracking
+        this.cursorHistory = [];
+        this.lastCursorState = null;
+        this.cursorTrackingInterval = null;
+        
+        // UI detection
+        this.formFieldDetector = new FormFieldDetector();
+        this.buttonDetector = new ButtonDetector();
+        this.lastMouseVelocity = 0;
     }
 
     // Initialize with StreamProcessor reference
@@ -27,6 +38,9 @@ class MouseTracker {
         
         this.startPositionTracking();
         this.startClickDetection();
+        this.startCursorStateTracking();
+        this.formFieldDetector.startDetection();
+        this.buttonDetector.startDetection();
     }
 
     // Stop mouse tracking
@@ -38,6 +52,9 @@ class MouseTracker {
         
         this.stopPositionTracking();
         this.stopClickDetection();
+        this.stopCursorStateTracking();
+        this.formFieldDetector.stopDetection();
+        this.buttonDetector.stopDetection();
     }
 
     // Start real-time mouse position tracking
@@ -206,20 +223,236 @@ class MouseTracker {
         }, 100); // Clear after 100ms
     }
 
+    // Start cursor state tracking
+    startCursorStateTracking() {
+        if (this.cursorTrackingInterval) clearInterval(this.cursorTrackingInterval);
+        
+        console.log('🖱️ Starting cursor state tracking...');
+        
+        // Poll cursor state at 10fps (less frequent than position tracking)
+        this.cursorTrackingInterval = setInterval(async () => {
+            if (!this.isTracking) return;
+            
+            try {
+                const cursorInfo = await ipcRenderer.invoke('get-cursor-info');
+                
+                // Store cursor state in history
+                this.cursorHistory.push(cursorInfo);
+                
+                // Keep only last 50 cursor states (5 seconds at 10fps)
+                if (this.cursorHistory.length > 50) {
+                    this.cursorHistory.shift();
+                }
+                
+                // Detect cursor type changes
+                if (this.lastCursorState && this.lastCursorState.type !== cursorInfo.type) {
+                    console.log('🖱️ Cursor type changed:', this.lastCursorState.type, '->', cursorInfo.type, 'confidence:', cursorInfo.confidence);
+                    
+                    // Notify StreamProcessor about cursor type change
+                    if (this.streamProcessor) {
+                        this.streamProcessor.onCursorTypeChange(cursorInfo);
+                    }
+                }
+                
+                // Analyze cursor state for UI element detection
+                const mousePosition = await ipcRenderer.invoke('get-cursor-position');
+                
+                // Calculate mouse velocity
+                let mouseVelocity = 0;
+                if (this.cursorHistory.length > 1) {
+                    const prev = this.cursorHistory[this.cursorHistory.length - 2];
+                    const curr = cursorInfo;
+                    const dx = curr.x - prev.x;
+                    const dy = curr.y - prev.y;
+                    const dt = curr.timestamp - prev.timestamp;
+                    mouseVelocity = dt > 0 ? Math.sqrt(dx * dx + dy * dy) / (dt / 1000) : 0; // pixels per second
+                }
+                
+                this.lastMouseVelocity = mouseVelocity;
+                
+                // Form field detection
+                const textFieldDetection = this.formFieldDetector.analyzeCursorState(cursorInfo, mousePosition);
+                
+                if (textFieldDetection && textFieldDetection.fieldConfidence > 0.8) {
+                    console.log('📝 High-confidence text field detected via cursor analysis');
+                    
+                    // Notify StreamProcessor about text field detection
+                    if (this.streamProcessor) {
+                        this.streamProcessor.onUIElementDetected('text-field', textFieldDetection);
+                    }
+                }
+                
+                // Button detection
+                const buttonDetection = this.buttonDetector.analyzeCursorState(cursorInfo, mousePosition, mouseVelocity);
+                
+                if (buttonDetection && buttonDetection.buttonConfidence > 0.8) {
+                    console.log('🔘 High-confidence button detected via cursor analysis');
+                    
+                    // Notify StreamProcessor about button detection
+                    if (this.streamProcessor) {
+                        this.streamProcessor.onUIElementDetected('button', buttonDetection);
+                    }
+                }
+                
+                this.lastCursorState = cursorInfo;
+                
+            } catch (error) {
+                console.error('Error tracking cursor state:', error);
+            }
+        }, 100); // 10fps
+    }
+
+    // Stop cursor state tracking
+    stopCursorStateTracking() {
+        if (this.cursorTrackingInterval) {
+            clearInterval(this.cursorTrackingInterval);
+            this.cursorTrackingInterval = null;
+            console.log('🖱️ Cursor state tracking stopped');
+        }
+        this.cursorHistory = [];
+        this.lastCursorState = null;
+    }
+
+    // Get cursor state analysis
+    getCursorStateAnalysis() {
+        if (this.cursorHistory.length < 5) {
+            return { 
+                dominantType: 'default', 
+                confidence: 0.5,
+                recentChanges: 0,
+                stability: 'unknown'
+            };
+        }
+        
+        const recent = this.cursorHistory.slice(-10); // Last 1 second
+        const typeCounts = {};
+        let changes = 0;
+        
+        // Count cursor types and changes
+        for (let i = 0; i < recent.length; i++) {
+            const type = recent[i].type;
+            typeCounts[type] = (typeCounts[type] || 0) + 1;
+            
+            if (i > 0 && recent[i].type !== recent[i-1].type) {
+                changes++;
+            }
+        }
+        
+        // Find dominant type
+        let dominantType = 'default';
+        let maxCount = 0;
+        for (const [type, count] of Object.entries(typeCounts)) {
+            if (count > maxCount) {
+                maxCount = count;
+                dominantType = type;
+            }
+        }
+        
+        const confidence = maxCount / recent.length;
+        const stability = changes <= 1 ? 'stable' : changes <= 3 ? 'moderate' : 'unstable';
+        
+        return {
+            dominantType,
+            confidence,
+            recentChanges: changes,
+            stability,
+            typeCounts
+        };
+    }
+
+    // Get form field detection at position
+    getFormFieldDetectionAt(position, radius = 20) {
+        return this.formFieldDetector.getTextFieldDetectionAt(position, radius);
+    }
+
+    // Get button detection at position
+    getButtonDetectionAt(position, radius = 25) {
+        return this.buttonDetector.getButtonDetectionAt(position, radius);
+    }
+
+    // Test form field detection accuracy
+    testFormFieldDetection() {
+        return this.formFieldDetector.testDetectionAccuracy();
+    }
+
+    // Test button detection accuracy
+    testButtonDetection() {
+        return this.buttonDetector.testDetectionAccuracy();
+    }
+
     // Get tracking state
     getState() {
+        const formFieldStats = this.formFieldDetector.getStats();
+        const buttonStats = this.buttonDetector.getStats();
+        
         return {
             isTracking: this.isTracking,
             hasStreamProcessor: !!this.streamProcessor,
             hasPositionTracking: !!this.mouseTrackingInterval,
-            hasClickDetection: !!this.mouseClickInterval
+            hasClickDetection: !!this.mouseClickInterval,
+            hasCursorTracking: !!this.cursorTrackingInterval,
+            cursorHistoryLength: this.cursorHistory.length,
+            lastCursorType: this.lastCursorState?.type || 'unknown',
+            lastMouseVelocity: this.lastMouseVelocity,
+            formFieldDetection: formFieldStats,
+            buttonDetection: buttonStats
         };
     }
 
     // Cleanup
     destroy() {
         this.stopTracking();
+        this.cursorHistory = [];
+        this.lastCursorState = null;
+        this.formFieldDetector.destroy();
+        this.buttonDetector.destroy();
         this.streamProcessor = null;
+    }
+
+    stop() {
+        if (this.mouseTrackingInterval) {
+            clearInterval(this.mouseTrackingInterval);
+            this.mouseTrackingInterval = null;
+        }
+        if (this.mouseClickInterval) {
+            clearInterval(this.mouseClickInterval);
+            this.mouseClickInterval = null;
+        }
+        if (this.cursorTrackingInterval) {
+            clearInterval(this.cursorTrackingInterval);
+            this.cursorTrackingInterval = null;
+        }
+        this.cursorHistory = [];
+        this.lastCursorState = null;
+        console.log('MouseTracker stopped');
+    }
+    
+    // Expose UI detection data for preview
+    getUIDetectionData() {
+        if (!this.formFieldDetector || !this.buttonDetector) return null;
+        
+        return {
+            formFieldDetections: this.formFieldDetector.detections,
+            buttonDetections: this.buttonDetector.detections,
+            currentUIElement: this.lastCursorState,
+            lastDetectionTime: this.lastMouseCheck.time
+        };
+    }
+    
+    // Expose performance metrics
+    getPerformanceMetrics() {
+        if (!this.formFieldDetector || !this.buttonDetector) return null;
+        
+        const now = Date.now();
+        const recentDetections = this.cursorHistory.filter(c => now - c.timestamp < 5000);
+        
+        return {
+            detectionFPS: this.formFieldDetector.getCurrentFPS ? this.formFieldDetector.getCurrentFPS() : 0,
+            avgDetectionTime: this.formFieldDetector.getAverageDetectionTime ? this.formFieldDetector.getAverageDetectionTime() : 0,
+            cacheHitRate: this.formFieldDetector.getCacheHitRate ? this.formFieldDetector.getCacheHitRate() : 0,
+            totalDetections: recentDetections.length,
+            activeUIElements: this.lastCursorState ? 1 : 0
+        };
     }
 }
 

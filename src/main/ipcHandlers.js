@@ -6,6 +6,9 @@ let clickTrackingInterval = null;
 let lastClickTime = 0;
 let mainWindow = null;
 let mouseHistory = [];
+// Cursor state tracking
+let cursorHistory = [];
+let lastCursorCheck = { x: 0, y: 0, timestamp: 0 };
 
 function registerHandlers(window) {
   mainWindow = window;
@@ -80,6 +83,24 @@ function registerHandlers(window) {
     return { x: point.x, y: point.y };
   });
 
+  // Advanced cursor information including type and state
+  ipcMain.handle('get-cursor-info', () => {
+    const point = screen.getCursorScreenPoint();
+    
+    // Note: Electron doesn't provide direct cursor type detection
+    // We'll need to implement heuristic-based detection
+    const cursorInfo = {
+      x: point.x,
+      y: point.y,
+      timestamp: Date.now(),
+      // Will be enhanced with type detection logic
+      type: 'default', // default, pointer, text, crosshair, etc.
+      confidence: 0.0  // confidence in type detection (0-1)
+    };
+    
+    return cursorInfo;
+  });
+
   // Get display information
   ipcMain.handle('get-display-info', () => {
     const displays = screen.getAllDisplays();
@@ -112,39 +133,62 @@ function startAdvancedClickTracking() {
   }
   
   mouseHistory = [];
+  cursorHistory = [];
   
   clickTrackingInterval = setInterval(() => {
     try {
       const currentPos = screen.getCursorScreenPoint();
       const now = Date.now();
       
-      // Add current position to history
+      // Detect cursor type through heuristic analysis
+      const cursorType = detectCursorType(currentPos, now);
+      
+      // Add current position and cursor state to history
+      const cursorState = {
+        x: currentPos.x,
+        y: currentPos.y,
+        timestamp: now,
+        type: cursorType.type,
+        confidence: cursorType.confidence
+      };
+      
       mouseHistory.push({
         x: currentPos.x,
         y: currentPos.y,
         timestamp: now
       });
       
+      cursorHistory.push(cursorState);
+      
+      // Keep only last 20 cursor states (about 320ms of history at 60fps)
+      if (cursorHistory.length > 20) {
+        cursorHistory.shift();
+      }
+      
       // Keep only last 10 positions (about 160ms of history at 60fps)
       if (mouseHistory.length > 10) {
         mouseHistory.shift();
       }
       
-      // Detect clicks using improved analysis
+      lastCursorCheck = { x: currentPos.x, y: currentPos.y, timestamp: now };
+      
+      // Detect clicks using improved analysis including cursor state
       if (mouseHistory.length >= 5) {
         const clickDetected = analyzeForClicks();
         if (clickDetected) {
-          console.log('🖱️ GLOBAL CLICK DETECTED at:', currentPos.x, currentPos.y);
+          console.log('🖱️ GLOBAL CLICK DETECTED at:', currentPos.x, currentPos.y, 'cursor type:', cursorType.type);
           lastClickTime = now;
           
-          // Notify renderer immediately
+          // Notify renderer immediately with cursor state
           if (mainWindow && !mainWindow.isDestroyed()) {
-            console.log('📡 SENDING IPC to renderer:', { x: currentPos.x, y: currentPos.y });
+            console.log('📡 SENDING IPC to renderer:', { x: currentPos.x, y: currentPos.y, cursorType: cursorType.type });
             mainWindow.webContents.send('global-click', { 
               x: currentPos.x, 
               y: currentPos.y, 
               timestamp: now,
-              source: 'advanced-detection'
+              source: 'advanced-detection',
+              cursorType: cursorType.type,
+              cursorConfidence: cursorType.confidence
             });
             console.log('📡 IPC SENT successfully');
           } else {
@@ -160,6 +204,70 @@ function startAdvancedClickTracking() {
       console.error('Error in advanced click tracking:', error);
     }
   }, 16); // ~60fps
+}
+
+// Heuristic cursor type detection
+function detectCursorType(currentPos, timestamp) {
+  // Since Electron doesn't provide direct cursor type detection,
+  // we use movement patterns and timing to infer cursor state
+  
+  const result = {
+    type: 'default',
+    confidence: 0.5
+  };
+  
+  if (cursorHistory.length < 3) {
+    return result;
+  }
+  
+  const recent = cursorHistory.slice(-5);
+  const timeDiff = timestamp - recent[0].timestamp;
+  
+  // Calculate movement patterns
+  let totalMovement = 0;
+  let movements = [];
+  
+  for (let i = 1; i < recent.length; i++) {
+    const dx = recent[i].x - recent[i-1].x;
+    const dy = recent[i].y - recent[i-1].y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    movements.push(distance);
+    totalMovement += distance;
+  }
+  
+  const avgMovement = totalMovement / movements.length;
+  const maxMovement = Math.max(...movements);
+  
+  // Cursor type detection heuristics:
+  
+  // 1. Text cursor (I-beam): Very slow, precise movements with long pauses
+  if (avgMovement < 0.5 && maxMovement < 2 && timeDiff > 100) {
+    result.type = 'text';
+    result.confidence = 0.7;
+  }
+  
+  // 2. Pointer cursor: Medium movements with acceleration/deceleration patterns
+  else if (avgMovement > 2 && avgMovement < 8 && movements.length >= 3) {
+    const hasPointerPattern = movements[0] < movements[1] && movements[1] > movements[2];
+    if (hasPointerPattern) {
+      result.type = 'pointer';
+      result.confidence = 0.8;
+    }
+  }
+  
+  // 3. Default cursor: Steady, consistent movements
+  else if (avgMovement >= 1 && avgMovement <= 5) {
+    result.type = 'default';
+    result.confidence = 0.6;
+  }
+  
+  // 4. Dragging/grabbing: Fast, sustained movement
+  else if (avgMovement > 8 && timeDiff < 200) {
+    result.type = 'grabbing';
+    result.confidence = 0.75;
+  }
+  
+  return result;
 }
 
 function analyzeForClicks() {
@@ -212,6 +320,7 @@ function stopAdvancedClickTracking() {
     clickTrackingInterval = null;
   }
   mouseHistory = [];
+  cursorHistory = [];
 }
 
 function isRecording() {
