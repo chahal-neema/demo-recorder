@@ -10,6 +10,27 @@ class FormFieldDetector {
         this.clickToTypingEvents = [];
         this.isMonitoring = false;
         this.keyboardListener = null;
+        
+        // Performance monitoring
+        this.performanceMetrics = {
+            detectionTimes: [],
+            cacheHits: 0,
+            cacheMisses: 0,
+            totalDetections: 0,
+            lastFPSCheck: Date.now(),
+            detectionCount: 0
+        };
+        
+        // Result caching
+        this.detectionCache = new Map(); // cache detection results
+        this.cacheTimeout = 500; // 500ms cache validity
+        
+        // Safety mechanisms
+        this.maxDetectionTime = 50; // Max 50ms per detection
+        this.detectionEnabled = true;
+        this.degradationThreshold = 30; // Degrade if avg detection time > 30ms
+        
+        this.setupKeyboardListener();
     }
 
     // Start form field detection
@@ -282,6 +303,140 @@ class FormFieldDetector {
         this.textFieldHeatMap.clear();
         this.clickToTypingEvents = [];
     }
+
+    analyzeForTextInput(cursorInfo, previousCursor) {
+        if (!this.detectionEnabled) {
+            return { isTextField: false, confidence: 0 };
+        }
+        
+        const startTime = Date.now();
+        
+        try {
+            // Check cache first
+            const cacheKey = `${cursorInfo.x},${cursorInfo.y},${cursorInfo.type}`;
+            const cached = this.detectionCache.get(cacheKey);
+            
+            if (cached && (startTime - cached.timestamp) < this.cacheTimeout) {
+                this.performanceMetrics.cacheHits++;
+                return cached.result;
+            }
+            
+            this.performanceMetrics.cacheMisses++;
+            
+            let confidence = 0;
+            let reasons = [];
+
+            // Text cursor detection (90% confidence if true)
+            if (cursorInfo.type === 'text') {
+                confidence += 0.9;
+                reasons.push('text_cursor');
+            } else if (cursorInfo.type === 'default' && previousCursor && previousCursor.type === 'text') {
+                // Recently was text cursor
+                confidence += 0.7;
+                reasons.push('recent_text_cursor');
+            }
+
+            // Click-to-typing pattern detection
+            if (this.isTyping && (Date.now() - this.lastTypingTime) < this.typingThreshold) {
+                confidence += 0.8;
+                reasons.push('active_typing');
+            }
+
+            // Apply time limits for safety
+            const detectionTime = Date.now() - startTime;
+            if (detectionTime > this.maxDetectionTime) {
+                console.warn(`FormField detection exceeded time limit: ${detectionTime}ms`);
+                this.checkPerformanceDegradation();
+            }
+            
+            const result = {
+                isTextField: confidence > 0.95,
+                confidence: Math.min(confidence, 1.0),
+                reasons: reasons,
+                timestamp: startTime
+            };
+            
+            // Cache the result
+            this.detectionCache.set(cacheKey, {
+                result: result,
+                timestamp: startTime
+            });
+            
+            // Clean old cache entries (performance optimization)
+            if (this.detectionCache.size > 100) {
+                this.cleanCache();
+            }
+            
+            // Record performance metrics
+            this.recordDetectionTime(detectionTime);
+            
+            return result;
+            
+        } catch (error) {
+            console.error('Error in FormField detection:', error);
+            // Fallback to basic detection
+            return { isTextField: cursorInfo.type === 'text', confidence: 0.5 };
+        }
+    }
+    
+    recordDetectionTime(detectionTime) {
+        this.performanceMetrics.detectionTimes.push(detectionTime);
+        this.performanceMetrics.totalDetections++;
+        this.performanceMetrics.detectionCount++;
+        
+        // Keep only recent detection times (last 50)
+        if (this.performanceMetrics.detectionTimes.length > 50) {
+            this.performanceMetrics.detectionTimes.shift();
+        }
+    }
+    
+    checkPerformanceDegradation() {
+        const avgTime = this.getAverageDetectionTime();
+        if (avgTime > this.degradationThreshold) {
+            console.warn(`UI Detection performance degraded: ${avgTime}ms avg, enabling fallback mode`);
+            this.detectionEnabled = false;
+            
+            // Re-enable after 5 seconds
+            setTimeout(() => {
+                this.detectionEnabled = true;
+                console.log('UI Detection re-enabled after performance recovery');
+            }, 5000);
+        }
+    }
+    
+    cleanCache() {
+        const now = Date.now();
+        for (const [key, cached] of this.detectionCache.entries()) {
+            if ((now - cached.timestamp) > this.cacheTimeout * 2) {
+                this.detectionCache.delete(key);
+            }
+        }
+    }
+    
+    getCurrentFPS() {
+        const now = Date.now();
+        const timeSinceLastCheck = now - this.performanceMetrics.lastFPSCheck;
+        
+        if (timeSinceLastCheck >= 1000) {
+            const fps = (this.performanceMetrics.detectionCount / timeSinceLastCheck) * 1000;
+            this.performanceMetrics.lastFPSCheck = now;
+            this.performanceMetrics.detectionCount = 0;
+            return Math.round(fps * 10) / 10; // Round to 1 decimal
+        }
+        
+        return 0;
+    }
+    
+    getAverageDetectionTime() {
+        if (this.performanceMetrics.detectionTimes.length === 0) return 0;
+        const sum = this.performanceMetrics.detectionTimes.reduce((a, b) => a + b, 0);
+        return Math.round((sum / this.performanceMetrics.detectionTimes.length) * 10) / 10;
+    }
+    
+    getCacheHitRate() {
+        const total = this.performanceMetrics.cacheHits + this.performanceMetrics.cacheMisses;
+        return total > 0 ? this.performanceMetrics.cacheHits / total : 0;
+    }
 }
 
 class ButtonDetector {
@@ -294,6 +449,25 @@ class ButtonDetector {
         this.mouseVelocityHistory = [];
         this.hoverStartTime = null;
         this.currentHoverArea = null;
+        
+        // Performance monitoring
+        this.performanceMetrics = {
+            detectionTimes: [],
+            cacheHits: 0,
+            cacheMisses: 0,
+            totalDetections: 0,
+            lastFPSCheck: Date.now(),
+            detectionCount: 0
+        };
+        
+        // Result caching
+        this.detectionCache = new Map();
+        this.cacheTimeout = 500; // 500ms cache validity
+        
+        // Safety mechanisms
+        this.maxDetectionTime = 50; // Max 50ms per detection
+        this.detectionEnabled = true;
+        this.degradationThreshold = 30; // Degrade if avg detection time > 30ms
     }
 
     // Start button detection
@@ -673,6 +847,152 @@ class ButtonDetector {
         this.hoverEvents = [];
         this.mouseVelocityHistory = [];
         this.clearHoverState();
+    }
+
+    analyzeForButton(cursorInfo, previousCursor, velocity) {
+        if (!this.detectionEnabled) {
+            return { isButton: false, confidence: 0 };
+        }
+        
+        const startTime = Date.now();
+        
+        try {
+            // Check cache first
+            const cacheKey = `${cursorInfo.x},${cursorInfo.y},${cursorInfo.type},${velocity.x},${velocity.y}`;
+            const cached = this.detectionCache.get(cacheKey);
+            
+            if (cached && (startTime - cached.timestamp) < this.cacheTimeout) {
+                this.performanceMetrics.cacheHits++;
+                return cached.result;
+            }
+            
+            this.performanceMetrics.cacheMisses++;
+            
+            let confidence = 0;
+            let reasons = [];
+
+            // Pointer cursor detection (80% confidence)
+            if (cursorInfo.type === 'pointer') {
+                confidence += 0.8;
+                reasons.push('pointer_cursor');
+            }
+
+            // Mouse deceleration analysis (hover detection)
+            const speed = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
+            if (speed < 50 && previousCursor) { // Slow movement = potential hover
+                const prevSpeed = Math.sqrt(
+                    Math.pow(cursorInfo.x - previousCursor.x, 2) + 
+                    Math.pow(cursorInfo.y - previousCursor.y, 2)
+                );
+                
+                if (prevSpeed > speed * 2) { // Significant deceleration
+                    confidence += 0.6;
+                    reasons.push('hover_deceleration');
+                }
+            }
+
+            // Low movement variance (hovering over element)
+            if (speed < 25) { // Very slow or stationary
+                confidence += 0.4;
+                reasons.push('stationary_hover');
+            }
+            
+            // Apply time limits for safety
+            const detectionTime = Date.now() - startTime;
+            if (detectionTime > this.maxDetectionTime) {
+                console.warn(`Button detection exceeded time limit: ${detectionTime}ms`);
+                this.checkPerformanceDegradation();
+            }
+            
+            const result = {
+                isButton: confidence > 0.8,
+                confidence: Math.min(confidence, 1.0),
+                reasons: reasons,
+                estimatedSize: this.estimateButtonSize(cursorInfo, velocity),
+                timestamp: startTime
+            };
+            
+            // Cache the result
+            this.detectionCache.set(cacheKey, {
+                result: result,
+                timestamp: startTime
+            });
+            
+            // Clean old cache entries
+            if (this.detectionCache.size > 100) {
+                this.cleanCache();
+            }
+            
+            // Record performance metrics
+            this.recordDetectionTime(detectionTime);
+            
+            return result;
+            
+        } catch (error) {
+            console.error('Error in Button detection:', error);
+            // Fallback to basic detection
+            return { isButton: cursorInfo.type === 'pointer', confidence: 0.5 };
+        }
+    }
+    
+    // Add the same performance methods as FormFieldDetector
+    recordDetectionTime(detectionTime) {
+        this.performanceMetrics.detectionTimes.push(detectionTime);
+        this.performanceMetrics.totalDetections++;
+        this.performanceMetrics.detectionCount++;
+        
+        // Keep only recent detection times (last 50)
+        if (this.performanceMetrics.detectionTimes.length > 50) {
+            this.performanceMetrics.detectionTimes.shift();
+        }
+    }
+    
+    checkPerformanceDegradation() {
+        const avgTime = this.getAverageDetectionTime();
+        if (avgTime > this.degradationThreshold) {
+            console.warn(`Button Detection performance degraded: ${avgTime}ms avg, enabling fallback mode`);
+            this.detectionEnabled = false;
+            
+            // Re-enable after 5 seconds
+            setTimeout(() => {
+                this.detectionEnabled = true;
+                console.log('Button Detection re-enabled after performance recovery');
+            }, 5000);
+        }
+    }
+    
+    cleanCache() {
+        const now = Date.now();
+        for (const [key, cached] of this.detectionCache.entries()) {
+            if ((now - cached.timestamp) > this.cacheTimeout * 2) {
+                this.detectionCache.delete(key);
+            }
+        }
+    }
+    
+    getCurrentFPS() {
+        const now = Date.now();
+        const timeSinceLastCheck = now - this.performanceMetrics.lastFPSCheck;
+        
+        if (timeSinceLastCheck >= 1000) {
+            const fps = (this.performanceMetrics.detectionCount / timeSinceLastCheck) * 1000;
+            this.performanceMetrics.lastFPSCheck = now;
+            this.performanceMetrics.detectionCount = 0;
+            return Math.round(fps * 10) / 10;
+        }
+        
+        return 0;
+    }
+    
+    getAverageDetectionTime() {
+        if (this.performanceMetrics.detectionTimes.length === 0) return 0;
+        const sum = this.performanceMetrics.detectionTimes.reduce((a, b) => a + b, 0);
+        return Math.round((sum / this.performanceMetrics.detectionTimes.length) * 10) / 10;
+    }
+    
+    getCacheHitRate() {
+        const total = this.performanceMetrics.cacheHits + this.performanceMetrics.cacheMisses;
+        return total > 0 ? this.performanceMetrics.cacheHits / total : 0;
     }
 }
 

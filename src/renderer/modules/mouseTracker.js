@@ -408,6 +408,52 @@ class MouseTracker {
         this.buttonDetector.destroy();
         this.streamProcessor = null;
     }
+
+    stop() {
+        if (this.mouseTrackingInterval) {
+            clearInterval(this.mouseTrackingInterval);
+            this.mouseTrackingInterval = null;
+        }
+        if (this.mouseClickInterval) {
+            clearInterval(this.mouseClickInterval);
+            this.mouseClickInterval = null;
+        }
+        if (this.cursorTrackingInterval) {
+            clearInterval(this.cursorTrackingInterval);
+            this.cursorTrackingInterval = null;
+        }
+        this.cursorHistory = [];
+        this.lastCursorState = null;
+        console.log('MouseTracker stopped');
+    }
+    
+    // Expose UI detection data for preview
+    getUIDetectionData() {
+        if (!this.formFieldDetector || !this.buttonDetector) return null;
+        
+        return {
+            formFieldDetections: this.formFieldDetector.detections,
+            buttonDetections: this.buttonDetector.detections,
+            currentUIElement: this.lastCursorState,
+            lastDetectionTime: this.lastMouseCheck.time
+        };
+    }
+    
+    // Expose performance metrics
+    getPerformanceMetrics() {
+        if (!this.formFieldDetector || !this.buttonDetector) return null;
+        
+        const now = Date.now();
+        const recentDetections = this.cursorHistory.filter(c => now - c.timestamp < 5000);
+        
+        return {
+            detectionFPS: this.formFieldDetector.getCurrentFPS ? this.formFieldDetector.getCurrentFPS() : 0,
+            avgDetectionTime: this.formFieldDetector.getAverageDetectionTime ? this.formFieldDetector.getAverageDetectionTime() : 0,
+            cacheHitRate: this.formFieldDetector.getCacheHitRate ? this.formFieldDetector.getCacheHitRate() : 0,
+            totalDetections: recentDetections.length,
+            activeUIElements: this.lastCursorState ? 1 : 0
+        };
+    }
 }
 
 module.exports = MouseTracker;
