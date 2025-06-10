@@ -320,13 +320,73 @@ class StreamProcessor {
     }
 
     startProcessing() {
-        const processFrame = () => {
-            this.updateZoomLevel();
-            this.updateZoomCenter();
-            this.renderFrame();
-            this.animationFrameId = requestAnimationFrame(processFrame);
-        };
-        processFrame();
+        this.isProcessing = true;
+        this.setupVisibilityHandling();
+        this.startFrameLoop();
+    }
+
+    setupVisibilityHandling() {
+        // Handle document visibility changes (minimized/hidden window)
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden) {
+                console.log('🔍 Window minimized/hidden - switching to timer-based processing');
+                this.switchToTimerMode();
+            } else {
+                console.log('🔍 Window visible - switching to requestAnimationFrame');
+                this.switchToAnimationFrameMode();
+            }
+        });
+    }
+
+    startFrameLoop() {
+        if (document.hidden) {
+            this.switchToTimerMode();
+        } else {
+            this.switchToAnimationFrameMode();
+        }
+    }
+
+    switchToAnimationFrameMode() {
+        if (this.timerInterval) {
+            clearInterval(this.timerInterval);
+            this.timerInterval = null;
+        }
+        
+        if (this.isProcessing && !this.animationFrameId) {
+            const processFrame = () => {
+                if (!this.isProcessing) return;
+                
+                this.updateZoomLevel();
+                this.updateZoomCenter();
+                this.renderFrame();
+                
+                if (!document.hidden) {
+                    this.animationFrameId = requestAnimationFrame(processFrame);
+                } else {
+                    this.animationFrameId = null;
+                    this.switchToTimerMode();
+                }
+            };
+            processFrame();
+        }
+    }
+
+    switchToTimerMode() {
+        if (this.animationFrameId) {
+            cancelAnimationFrame(this.animationFrameId);
+            this.animationFrameId = null;
+        }
+        
+        if (this.isProcessing && !this.timerInterval) {
+            // Use 60 FPS timer (16.67ms) to maintain smooth recording even when minimized
+            this.timerInterval = setInterval(() => {
+                if (!this.isProcessing) return;
+                
+                this.updateZoomLevel();
+                this.updateZoomCenter();
+                this.renderFrame();
+            }, 1000 / 60);
+        }
     }
 
     renderFrame() {
@@ -510,8 +570,16 @@ class StreamProcessor {
     }
     
     destroy() {
+        this.isProcessing = false;
+        
         if (this.animationFrameId) {
             cancelAnimationFrame(this.animationFrameId);
+            this.animationFrameId = null;
+        }
+        
+        if (this.timerInterval) {
+            clearInterval(this.timerInterval);
+            this.timerInterval = null;
         }
         
         if (this.processedStream) {
@@ -522,8 +590,6 @@ class StreamProcessor {
             this.sourceVideo.srcObject = null;
         }
     }
-
-
 }
 
 module.exports = StreamProcessor;
