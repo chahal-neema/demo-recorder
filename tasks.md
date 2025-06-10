@@ -48,11 +48,11 @@ Based on the current codebase and the UI element detection requirements, here ar
 
 ### Task 2.3: Implement Smart Zoom Centering
 **Context**: Zoom should center on UI element, not just mouse position.
-- [ ] Add UI element bounds estimation in detection modules
-- [ ] Update zoom center calculation to use element center vs mouse position
-- [ ] Implement predictive centering for moving elements
-- [ ] Add zoom center smoothing for stability
-- [ ] Test centering accuracy for different element sizes
+- [x] Add UI element bounds estimation in detection modules
+- [x] Update zoom center calculation to use element center vs mouse position
+- [x] Implement predictive centering for moving elements
+- [x] Add zoom center smoothing for stability
+- [x] Test centering accuracy for different element sizes
 
 ### Task 2.4: Add Zoom Conflict Resolution
 **Context**: Handle overlapping UI elements and zoom priority.

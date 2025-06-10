@@ -79,6 +79,26 @@ class StreamProcessor {
         this.centerSmoothingFactor = 0.15; // How quickly center adjusts
         this.lastCenterUpdate = 0;
         
+        // Zoom conflict resolution
+        this.zoomPriority = {
+            'text-field': 4,    // Highest priority - text input is critical
+            'dropdown': 3,      // High priority - user is selecting
+            'menu': 3,          // High priority - user is navigating
+            'button': 2,        // Medium priority - clickable action
+            'default': 1        // Lowest priority
+        };
+        
+        this.conflictingElements = [];
+        this.userOverride = {
+            active: false,
+            timestamp: 0,
+            duration: 5000,     // 5 seconds of manual control
+            zoomLevel: 1.0
+        };
+        
+        this.rapidMovementThreshold = 500; // px/sec for emergency zoom-out
+        this.lastRapidMovementCheck = 0;
+        
         // Zoom animation properties
         this.zoomTransition = {
             active: false,
@@ -166,6 +186,12 @@ class StreamProcessor {
     onUIElementDetected(elementType, detection) {
         const now = Date.now();
         
+        // Check if user override is active
+        if (this.isUserOverrideActive()) {
+            console.log('👤 User override active - ignoring UI element detection');
+            return;
+        }
+        
         // Respect zoom cooldown to prevent rapid changes
         if (now - this.lastZoomChangeTime < this.zoomCooldown) {
             return;
@@ -173,31 +199,51 @@ class StreamProcessor {
         
         console.log('🎯 UI Element detected:', elementType, 'confidence:', detection.confidence || detection.fieldConfidence || detection.buttonConfidence);
         
+        // Resolve conflicts with other UI elements
+        const resolvedElement = this.resolveZoomConflicts(elementType, detection);
+        const finalElementType = resolvedElement.elementType;
+        const finalDetection = resolvedElement.detection;
+        
+        // Store previous element for transition handling
+        const previousElement = this.currentUIElement;
+        
         this.currentUIElement = {
-            type: elementType,
-            detection: detection,
+            type: finalElementType,
+            detection: finalDetection,
             timestamp: now,
             zoomStartTime: now,
-            persistenceRule: this.zoomPersistenceRules[elementType] || this.zoomPersistenceRules.default
+            persistenceRule: this.zoomPersistenceRules[finalElementType] || this.zoomPersistenceRules.default,
+            conflictResolved: resolvedElement.conflictResolved || false
         };
         
         // Clear any existing exit conditions
         this.zoomExitConditions.clear();
         
         // Calculate smart zoom center for the UI element
-        const elementCenter = this.calculateElementCenter(elementType, detection);
+        const elementCenter = this.calculateElementCenter(finalElementType, finalDetection);
         this.applyCenterSmoothing(elementCenter);
         
         // Select appropriate zoom level based on element type
-        const newZoomLevel = this.selectZoomLevelForElement(elementType, detection);
+        const newZoomLevel = this.selectZoomLevelForElement(finalElementType, finalDetection);
         
         if (newZoomLevel !== this.targetZoomLevel) {
-            console.log('🔍 Changing zoom level for', elementType, 'from', this.targetZoomLevel, 'to', newZoomLevel);
+            console.log('🔍 Changing zoom level for', finalElementType, 'from', this.targetZoomLevel, 'to', newZoomLevel);
             console.log('⏱️ Using persistence rule:', this.currentUIElement.persistenceRule);
             console.log('🎯 Smart center:', elementCenter);
-            this.targetZoomLevel = newZoomLevel;
+            
+            if (resolvedElement.conflictResolved) {
+                console.log('⚔️ Conflict resolved - using priority-based zoom');
+            }
+            
+            // Handle smooth transitions for conflicts
+            if (previousElement && resolvedElement.conflictResolved) {
+                this.handleConflictTransition(previousElement, this.currentUIElement);
+            } else {
+                this.targetZoomLevel = newZoomLevel;
+                this.startZoomTransition();
+            }
+            
             this.lastZoomChangeTime = now;
-            this.startZoomTransition();
         }
     }
 
@@ -348,6 +394,9 @@ class StreamProcessor {
                 this.lastZoomExitCheck = now;
                 this.checkZoomExitConditions();
             }
+            
+            // Check for rapid movement every 100ms
+            this.checkRapidMovement();
             
             // Additional aggressive zoom-out check every 2 seconds
             if (!this.lastForceCheck || now - this.lastForceCheck > 2000) {
@@ -1172,6 +1221,204 @@ class StreamProcessor {
                 element: this.currentUIElement?.type
             });
         }
+    }
+
+    // Handle zoom conflicts between overlapping UI elements
+    resolveZoomConflicts(newElementType, newDetection) {
+        const now = Date.now();
+        
+        // Add new element to conflicting elements list
+        this.conflictingElements.push({
+            type: newElementType,
+            detection: newDetection,
+            timestamp: now,
+            priority: this.zoomPriority[newElementType] || this.zoomPriority.default
+        });
+        
+        // Remove old conflicting elements (older than 2 seconds)
+        this.conflictingElements = this.conflictingElements.filter(
+            element => now - element.timestamp < 2000
+        );
+        
+        // If only one element, no conflict
+        if (this.conflictingElements.length <= 1) {
+            return { elementType: newElementType, detection: newDetection };
+        }
+        
+        console.log('⚔️ Zoom conflict detected between', this.conflictingElements.length, 'elements');
+        
+        // Find highest priority element
+        let highestPriority = 0;
+        let winningElement = null;
+        
+        for (const element of this.conflictingElements) {
+            if (element.priority > highestPriority) {
+                highestPriority = element.priority;
+                winningElement = element;
+            } else if (element.priority === highestPriority) {
+                // Same priority - use most recent
+                if (element.timestamp > winningElement.timestamp) {
+                    winningElement = element;
+                }
+            }
+        }
+        
+        console.log('🏆 Conflict resolved: winner is', winningElement.type, 'with priority', winningElement.priority);
+        
+        return {
+            elementType: winningElement.type,
+            detection: winningElement.detection,
+            conflictResolved: true,
+            conflictingCount: this.conflictingElements.length
+        };
+    }
+
+    // Handle smooth transitions between conflicting zoom requests
+    handleConflictTransition(fromElement, toElement) {
+        const fromZoom = this.selectZoomLevelForElement(fromElement.type, fromElement.detection);
+        const toZoom = this.selectZoomLevelForElement(toElement.type, toElement.detection);
+        
+        // If zoom levels are very different, use intermediate transition
+        const zoomDifference = Math.abs(toZoom - fromZoom);
+        
+        if (zoomDifference > 0.5) {
+            console.log('🔄 Large zoom conflict - using intermediate transition');
+            
+            // First transition to intermediate level
+            const intermediateZoom = (fromZoom + toZoom) / 2;
+            this.targetZoomLevel = intermediateZoom;
+            this.startZoomTransition();
+            
+            // Then transition to final level after a short delay
+            setTimeout(() => {
+                this.targetZoomLevel = toZoom;
+                this.startZoomTransition();
+            }, 300);
+        } else {
+            // Direct transition for small differences
+            this.targetZoomLevel = toZoom;
+            this.startZoomTransition();
+        }
+    }
+
+    // Check for rapid mouse movement and trigger emergency zoom-out
+    checkRapidMovement() {
+        const now = Date.now();
+        
+        if (now - this.lastRapidMovementCheck < 100) return; // Check every 100ms
+        
+        this.lastRapidMovementCheck = now;
+        
+        if (!this.mousePosition.relativeX || !this.lastMousePosition) return;
+        
+        // Calculate mouse velocity
+        const timeDelta = now - (this.lastMousePosition.timestamp || now);
+        if (timeDelta <= 0) return;
+        
+        const dx = this.mousePosition.x - (this.lastMousePosition.x || this.mousePosition.x);
+        const dy = this.mousePosition.y - (this.lastMousePosition.y || this.mousePosition.y);
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        const velocity = distance / (timeDelta / 1000); // pixels per second
+        
+        if (velocity > this.rapidMovementThreshold && this.zoomLevel > 1.1) {
+            console.log('🚨 Rapid movement detected:', velocity.toFixed(0), 'px/s - emergency zoom out');
+            this.emergencyZoomOut();
+        }
+    }
+
+    // Emergency zoom-out for rapid movement
+    emergencyZoomOut() {
+        this.targetZoomLevel = this.zoomPresets.none;
+        this.currentUIElement = null;
+        this.conflictingElements = [];
+        this.zoomExitConditions.clear();
+        
+        // Use faster transition for emergency
+        this.zoomTransition = {
+            active: true,
+            startLevel: this.zoomLevel,
+            targetLevel: this.targetZoomLevel,
+            startTime: Date.now(),
+            duration: 200 // Fast 200ms transition
+        };
+        
+        console.log('🚨 Emergency zoom-out initiated');
+    }
+
+    // Activate user override (manual zoom control)
+    activateUserOverride(zoomLevel) {
+        const now = Date.now();
+        
+        this.userOverride = {
+            active: true,
+            timestamp: now,
+            duration: 5000,
+            zoomLevel: zoomLevel
+        };
+        
+        this.targetZoomLevel = zoomLevel;
+        this.currentUIElement = null; // Clear UI element control
+        this.conflictingElements = [];
+        
+        console.log('👤 User override activated:', zoomLevel, 'for', this.userOverride.duration / 1000, 'seconds');
+        this.startZoomTransition();
+    }
+
+    // Check if user override is still active
+    isUserOverrideActive() {
+        if (!this.userOverride.active) return false;
+        
+        const now = Date.now();
+        const elapsed = now - this.userOverride.timestamp;
+        
+        if (elapsed > this.userOverride.duration) {
+            this.userOverride.active = false;
+            console.log('👤 User override expired after', elapsed / 1000, 'seconds');
+            return false;
+        }
+        
+        return true;
+    }
+
+    // Test zoom conflict resolution scenarios
+    testConflictResolution() {
+        console.log('⚔️ Testing zoom conflict resolution...');
+        
+        // Simulate overlapping UI elements
+        const conflicts = [
+            {
+                type: 'button',
+                detection: { position: { x: 300, y: 200 }, confidence: 0.8 }
+            },
+            {
+                type: 'text-field',
+                detection: { position: { x: 320, y: 210 }, confidence: 0.9 }
+            },
+            {
+                type: 'menu',
+                detection: { position: { x: 310, y: 205 }, confidence: 0.7 }
+            }
+        ];
+        
+        // Simulate rapid detection of conflicting elements
+        conflicts.forEach((conflict, index) => {
+            setTimeout(() => {
+                console.log(`🧪 Simulating ${conflict.type} detection...`);
+                this.onUIElementDetected(conflict.type, conflict.detection);
+            }, index * 500); // 500ms apart
+        });
+        
+        // Test user override after conflicts
+        setTimeout(() => {
+            console.log('🧪 Testing user override...');
+            this.activateUserOverride(1.8);
+        }, 3000);
+        
+        // Test emergency zoom-out
+        setTimeout(() => {
+            console.log('🧪 Testing emergency zoom-out...');
+            this.emergencyZoomOut();
+        }, 6000);
     }
 }
 
