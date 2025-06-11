@@ -4,9 +4,13 @@ const { FormFieldDetector, ButtonDetector } = require('./uiDetection.js');
 
 class MouseTracker {
     constructor() {
-        this.mouseTrackingInterval = null;
-        this.mouseClickInterval = null;
+        this.trackingLoop = null;
         this.lastMouseCheck = { x: 0, y: 0, time: 0 };
+        this.lastPositionTime = 0;
+        this.lastClickTime = 0;
+        this.lastCursorTime = 0;
+        this.currentPosition = { x: 0, y: 0, relativeX: -1, relativeY: -1 };
+        this.currentVelocity = { x: 0, y: 0 };
         this.streamProcessor = null;
         this.isTracking = false;
         
@@ -16,7 +20,6 @@ class MouseTracker {
         // Cursor state tracking
         this.cursorHistory = [];
         this.lastCursorState = null;
-        this.cursorTrackingInterval = null;
         
         // UI detection
         this.formFieldDetector = new FormFieldDetector();
@@ -32,118 +35,106 @@ class MouseTracker {
     // Start mouse tracking for recording
     startTracking() {
         if (this.isTracking) return;
-        
+
         this.isTracking = true;
         console.log('🖱️ Starting mouse tracking...');
-        
-        this.startPositionTracking();
-        this.startClickDetection();
-        this.startCursorStateTracking();
+
         this.formFieldDetector.startDetection();
         this.buttonDetector.startDetection();
+
+        // Unified tracking loop
+        const loopInterval = Math.min(config.mouse.trackingInterval, 20);
+        this.trackingLoop = setInterval(() => this.trackingStep(), loopInterval);
     }
 
     // Stop mouse tracking
     stopTracking() {
         if (!this.isTracking) return;
-        
+
         this.isTracking = false;
         console.log('🖱️ Stopping mouse tracking...');
-        
-        this.stopPositionTracking();
-        this.stopClickDetection();
-        this.stopCursorStateTracking();
+
+        if (this.trackingLoop) {
+            clearInterval(this.trackingLoop);
+            this.trackingLoop = null;
+        }
+
         this.formFieldDetector.stopDetection();
         this.buttonDetector.stopDetection();
     }
 
-    // Start real-time mouse position tracking
-    startPositionTracking() {
-        if (this.mouseTrackingInterval) clearInterval(this.mouseTrackingInterval);
-        
-        const interval = config.mouse.trackingInterval;
-        this.mouseTrackingInterval = setInterval(async () => {
-            if (!this.streamProcessor || !this.isTracking) return;
-            
-            try {
-                const pos = await ipcRenderer.invoke('get-cursor-position');
-                
-                // Calculate relative position based on recording bounds
-                const recordingBounds = this.streamProcessor.recordingBounds;
-                if (recordingBounds) {
-                    const relativePos = {
-                        x: pos.x,
-                        y: pos.y,
-                        relativeX: (pos.x - recordingBounds.x) / recordingBounds.width,
-                        relativeY: (pos.y - recordingBounds.y) / recordingBounds.height
-                    };
-                    
-                    this.streamProcessor.updateMousePosition(relativePos);
-                }
-            } catch (error) {
-                console.error('Error tracking mouse position:', error);
+    // Unified tracking loop handler
+    async trackingStep() {
+        if (!this.streamProcessor || !this.isTracking) return;
+
+        const now = Date.now();
+
+        try {
+            const pos = await ipcRenderer.invoke('get-cursor-position');
+
+            const recordingBounds = this.streamProcessor.recordingBounds;
+            if (recordingBounds && now - this.lastPositionTime >= config.mouse.trackingInterval) {
+                const relativePos = {
+                    x: pos.x,
+                    y: pos.y,
+                    relativeX: (pos.x - recordingBounds.x) / recordingBounds.width,
+                    relativeY: (pos.y - recordingBounds.y) / recordingBounds.height
+                };
+                this.streamProcessor.updateMousePosition(relativePos);
+                this.currentVelocity = {
+                    x: (relativePos.x - this.currentPosition.x) / Math.max((now - this.lastPositionTime) / 1000, 0.001),
+                    y: (relativePos.y - this.currentPosition.y) / Math.max((now - this.lastPositionTime) / 1000, 0.001)
+                };
+                this.currentPosition = relativePos;
+                this.lastPositionTime = now;
             }
-        }, interval);
-    }
 
-    // Stop position tracking
-    stopPositionTracking() {
-        if (this.mouseTrackingInterval) {
-            clearInterval(this.mouseTrackingInterval);
-            this.mouseTrackingInterval = null;
-        }
-    }
-
-    // Start enhanced click detection
-    startClickDetection() {
-        if (this.mouseClickInterval) clearInterval(this.mouseClickInterval);
-        
-        console.log('🖱️ Starting enhanced click detection...');
-        
-        const interval = config.mouse.clickInterval;
-        this.mouseClickInterval = setInterval(async () => {
-            if (!this.streamProcessor || !this.isTracking) return;
-            
-            try {
-                const pos = await ipcRenderer.invoke('get-cursor-position');
-                const now = Date.now();
-                
-                // Detect potential clicks by mouse position stability
+            if (now - this.lastClickTime >= config.mouse.clickInterval) {
                 const dx = Math.abs(pos.x - this.lastMouseCheck.x);
                 const dy = Math.abs(pos.y - this.lastMouseCheck.y);
                 const dt = now - this.lastMouseCheck.time;
-                
-                // Detect potential clicks by mouse behavior patterns
-                const isStable = dx < 2 && dy < 2; // Very stable position
-                const timingGood = dt > 80 && dt < 400; // Good click timing
-                const notTooFrequent = now - (this.lastMouseCheck.lastDetectedClick || 0) > 1000; // Debounce
-                
+                const isStable = dx < 2 && dy < 2;
+                const timingGood = dt > 80 && dt < 400;
+                const notTooFrequent = now - (this.lastMouseCheck.lastDetectedClick || 0) > 1000;
                 if (isStable && timingGood && notTooFrequent) {
-                    console.log('🖱️ Enhanced click detected via mouse analysis at:', pos.x, pos.y);
-                    console.log('   Movement delta:', dx, dy, 'Time delta:', dt);
-                    console.log('   Position stability: excellent (<2px movement)');
-                    
-                    // Mark this detection
                     this.lastMouseCheck.lastDetectedClick = now;
-                    
-                    // Trigger click in StreamProcessor
                     this.streamProcessor.onMouseClick();
                 }
-                
                 this.lastMouseCheck = { x: pos.x, y: pos.y, time: now };
-                
-            } catch (error) {
-                console.error('Error in enhanced click detection:', error);
+                this.lastClickTime = now;
             }
-        }, interval);
-    }
 
-    // Stop click detection
-    stopClickDetection() {
-        if (this.mouseClickInterval) {
-            clearInterval(this.mouseClickInterval);
-            this.mouseClickInterval = null;
-            console.log('🖱️ Enhanced click detection stopped');
+            if (now - this.lastCursorTime >= 100) {
+                const cursorInfo = await ipcRenderer.invoke('get-cursor-info');
+                this.cursorHistory.push(cursorInfo);
+                if (this.cursorHistory.length > 50) this.cursorHistory.shift();
+
+                if (this.lastCursorState && this.lastCursorState.type !== cursorInfo.type && this.streamProcessor) {
+                    this.streamProcessor.onCursorTypeChange(cursorInfo);
+                }
+
+                const mouseVelocity = this.cursorHistory.length > 1 ?
+                    Math.sqrt(Math.pow(cursorInfo.x - this.cursorHistory[this.cursorHistory.length - 2].x, 2) +
+                              Math.pow(cursorInfo.y - this.cursorHistory[this.cursorHistory.length - 2].y, 2)) /
+                    ((cursorInfo.timestamp - this.cursorHistory[this.cursorHistory.length - 2].timestamp) / 1000) : 0;
+                this.lastMouseVelocity = mouseVelocity;
+
+                const textFieldDetection = this.formFieldDetector.analyzeCursorState(cursorInfo, pos);
+                if (textFieldDetection && textFieldDetection.fieldConfidence > 0.8 && this.streamProcessor) {
+                    this.streamProcessor.onUIElementDetected('text-field', textFieldDetection);
+                }
+
+                const buttonDetection = this.buttonDetector.analyzeCursorState(cursorInfo, pos, mouseVelocity);
+                if (buttonDetection && buttonDetection.buttonConfidence > 0.8 && this.streamProcessor) {
+                    this.streamProcessor.onUIElementDetected('button', buttonDetection);
+                }
+
+                this.lastCursorState = cursorInfo;
+                this.lastCursorTime = now;
+            }
+
+        } catch (error) {
+            console.error('Error in mouse tracking loop:', error);
         }
     }
 
@@ -203,6 +194,8 @@ class MouseTracker {
                     
                     // Update mouse position first, then trigger click
                     this.streamProcessor.updateMousePosition(relativePos);
+                    this.currentPosition = relativePos;
+                    this.lastPositionTime = now;
                     this.streamProcessor.onMouseClick();
                 } else {
                     console.log('❌ Global click outside recording area - ignoring');
@@ -221,96 +214,6 @@ class MouseTracker {
         setTimeout(() => {
             this.ignoreNextClick = false;
         }, 100); // Clear after 100ms
-    }
-
-    // Start cursor state tracking
-    startCursorStateTracking() {
-        if (this.cursorTrackingInterval) clearInterval(this.cursorTrackingInterval);
-        
-        console.log('🖱️ Starting cursor state tracking...');
-        
-        // Poll cursor state at 10fps (less frequent than position tracking)
-        this.cursorTrackingInterval = setInterval(async () => {
-            if (!this.isTracking) return;
-            
-            try {
-                const cursorInfo = await ipcRenderer.invoke('get-cursor-info');
-                
-                // Store cursor state in history
-                this.cursorHistory.push(cursorInfo);
-                
-                // Keep only last 50 cursor states (5 seconds at 10fps)
-                if (this.cursorHistory.length > 50) {
-                    this.cursorHistory.shift();
-                }
-                
-                // Detect cursor type changes
-                if (this.lastCursorState && this.lastCursorState.type !== cursorInfo.type) {
-                    console.log('🖱️ Cursor type changed:', this.lastCursorState.type, '->', cursorInfo.type, 'confidence:', cursorInfo.confidence);
-                    
-                    // Notify StreamProcessor about cursor type change
-                    if (this.streamProcessor) {
-                        this.streamProcessor.onCursorTypeChange(cursorInfo);
-                    }
-                }
-                
-                // Analyze cursor state for UI element detection
-                const mousePosition = await ipcRenderer.invoke('get-cursor-position');
-                
-                // Calculate mouse velocity
-                let mouseVelocity = 0;
-                if (this.cursorHistory.length > 1) {
-                    const prev = this.cursorHistory[this.cursorHistory.length - 2];
-                    const curr = cursorInfo;
-                    const dx = curr.x - prev.x;
-                    const dy = curr.y - prev.y;
-                    const dt = curr.timestamp - prev.timestamp;
-                    mouseVelocity = dt > 0 ? Math.sqrt(dx * dx + dy * dy) / (dt / 1000) : 0; // pixels per second
-                }
-                
-                this.lastMouseVelocity = mouseVelocity;
-                
-                // Form field detection
-                const textFieldDetection = this.formFieldDetector.analyzeCursorState(cursorInfo, mousePosition);
-                
-                if (textFieldDetection && textFieldDetection.fieldConfidence > 0.8) {
-                    console.log('📝 High-confidence text field detected via cursor analysis');
-                    
-                    // Notify StreamProcessor about text field detection
-                    if (this.streamProcessor) {
-                        this.streamProcessor.onUIElementDetected('text-field', textFieldDetection);
-                    }
-                }
-                
-                // Button detection
-                const buttonDetection = this.buttonDetector.analyzeCursorState(cursorInfo, mousePosition, mouseVelocity);
-                
-                if (buttonDetection && buttonDetection.buttonConfidence > 0.8) {
-                    console.log('🔘 High-confidence button detected via cursor analysis');
-                    
-                    // Notify StreamProcessor about button detection
-                    if (this.streamProcessor) {
-                        this.streamProcessor.onUIElementDetected('button', buttonDetection);
-                    }
-                }
-                
-                this.lastCursorState = cursorInfo;
-                
-            } catch (error) {
-                console.error('Error tracking cursor state:', error);
-            }
-        }, 100); // 10fps
-    }
-
-    // Stop cursor state tracking
-    stopCursorStateTracking() {
-        if (this.cursorTrackingInterval) {
-            clearInterval(this.cursorTrackingInterval);
-            this.cursorTrackingInterval = null;
-            console.log('🖱️ Cursor state tracking stopped');
-        }
-        this.cursorHistory = [];
-        this.lastCursorState = null;
     }
 
     // Get cursor state analysis
@@ -388,9 +291,9 @@ class MouseTracker {
         return {
             isTracking: this.isTracking,
             hasStreamProcessor: !!this.streamProcessor,
-            hasPositionTracking: !!this.mouseTrackingInterval,
-            hasClickDetection: !!this.mouseClickInterval,
-            hasCursorTracking: !!this.cursorTrackingInterval,
+            hasPositionTracking: !!this.trackingLoop,
+            hasClickDetection: !!this.trackingLoop,
+            hasCursorTracking: !!this.trackingLoop,
             cursorHistoryLength: this.cursorHistory.length,
             lastCursorType: this.lastCursorState?.type || 'unknown',
             lastMouseVelocity: this.lastMouseVelocity,
@@ -410,17 +313,9 @@ class MouseTracker {
     }
 
     stop() {
-        if (this.mouseTrackingInterval) {
-            clearInterval(this.mouseTrackingInterval);
-            this.mouseTrackingInterval = null;
-        }
-        if (this.mouseClickInterval) {
-            clearInterval(this.mouseClickInterval);
-            this.mouseClickInterval = null;
-        }
-        if (this.cursorTrackingInterval) {
-            clearInterval(this.cursorTrackingInterval);
-            this.cursorTrackingInterval = null;
+        if (this.trackingLoop) {
+            clearInterval(this.trackingLoop);
+            this.trackingLoop = null;
         }
         this.cursorHistory = [];
         this.lastCursorState = null;
@@ -453,6 +348,15 @@ class MouseTracker {
             totalDetections: recentDetections.length,
             activeUIElements: this.lastCursorState ? 1 : 0
         };
+    }
+
+    // Current mouse position for preview usage
+    getCurrentPosition() {
+        return { ...this.currentPosition };
+    }
+
+    getCurrentVelocity() {
+        return { ...this.currentVelocity };
     }
 }
 

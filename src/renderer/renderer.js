@@ -8,8 +8,10 @@ const StreamProcessor = require('./modules/streamProcessor.js');
 const logger = require('./modules/logger.js');
 const PostProcessor = require('../services/PostProcessor.js');
 
-// Initialize logging system
-logger.initialize('debug.log');
+// Initialize logging system only when enabled in config
+if (config.debug.enableLogging) {
+    logger.initialize('debug.log');
+}
 
 console.log('✅ Modules imported successfully');
 

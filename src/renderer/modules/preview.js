@@ -6,10 +6,8 @@ let previewCanvas = null;
 let previewCtx = null;
 let realMousePosition = { x: 0, y: 0, relativeX: -1, relativeY: -1 };
 let mouseVelocity = { x: 0, y: 0 };
-let lastMouseTime = 0;
 let lastClickTime = 0;
 let animationFrameId = null;
-let mouseTrackingInterval = null;
 let displayInfo = null;
 let recordingBounds = null;
 
@@ -33,7 +31,6 @@ async function initializePreview(domElements, selectedSource) {
     await setupRecordingBounds(selectedSource);
     
     setupCanvases();
-    startRealMouseTracking();
     startUIDetectionTracking();
     
     if (animationFrameId) cancelAnimationFrame(animationFrameId);
@@ -110,32 +107,6 @@ async function setupRecordingBounds(selectedSource) {
     }
 }
 
-function startRealMouseTracking() {
-    if (mouseTrackingInterval) clearInterval(mouseTrackingInterval);
-    
-    mouseTrackingInterval = setInterval(async () => {
-        try {
-            const now = Date.now();
-            const pos = await ipcRenderer.invoke('get-cursor-position');
-            
-            if (lastMouseTime > 0) {
-                const dt = (now - lastMouseTime) / 1000;
-                mouseVelocity.x = (pos.x - realMousePosition.x) / dt;
-                mouseVelocity.y = (pos.y - realMousePosition.y) / dt;
-            }
-            
-            realMousePosition = pos;
-            lastMouseTime = now;
-            
-            if (recordingBounds) {
-                realMousePosition.relativeX = (pos.x - recordingBounds.x) / recordingBounds.width;
-                realMousePosition.relativeY = (pos.y - recordingBounds.y) / recordingBounds.height;
-            }
-        } catch (error) {
-            console.error('Error tracking mouse:', error);
-        }
-    }, 16); // ~60fps
-}
 
 function startUIDetectionTracking() {
     if (uiDataRequestInterval) clearInterval(uiDataRequestInterval);
@@ -144,14 +115,14 @@ function startUIDetectionTracking() {
     uiDataRequestInterval = setInterval(async () => {
         try {
             // Get current UI detection state from MouseTracker
-            const mouseTracker = require('./mouseTracker.js');
-            if (mouseTracker && typeof mouseTracker.getUIDetectionData === 'function') {
-                uiDetectionData = mouseTracker.getUIDetectionData();
+            const mt = window.getMouseTracker ? window.getMouseTracker() : null;
+            if (mt && typeof mt.getUIDetectionData === 'function') {
+                uiDetectionData = mt.getUIDetectionData();
             }
-            
+
             // Get performance metrics
-            if (mouseTracker && typeof mouseTracker.getPerformanceMetrics === 'function') {
-                performanceData = mouseTracker.getPerformanceMetrics();
+            if (mt && typeof mt.getPerformanceMetrics === 'function') {
+                performanceData = mt.getPerformanceMetrics();
             }
         } catch (error) {
             console.error('Error fetching UI detection data:', error);
@@ -164,6 +135,12 @@ function renderPreviewEffects() {
     
     previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
     
+    const mt = window.getMouseTracker ? window.getMouseTracker() : null;
+    if (mt && typeof mt.getCurrentPosition === 'function') {
+        realMousePosition = mt.getCurrentPosition();
+        mouseVelocity = mt.getCurrentVelocity();
+    }
+
     const effectData = {
         ctx: previewCtx,
         canvas: previewCanvas,
@@ -203,7 +180,6 @@ function renderPreviewEffects() {
 }
 
 function stopPreview() {
-    if (mouseTrackingInterval) clearInterval(mouseTrackingInterval);
     if (uiDataRequestInterval) clearInterval(uiDataRequestInterval);
     if (animationFrameId) cancelAnimationFrame(animationFrameId);
     if(previewCanvas && previewCanvas.parentElement) {
@@ -211,7 +187,6 @@ function stopPreview() {
     }
     previewCanvas = null;
     previewCtx = null;
-    mouseTrackingInterval = null;
     uiDataRequestInterval = null;
     animationFrameId = null;
     uiDetectionData = null;
